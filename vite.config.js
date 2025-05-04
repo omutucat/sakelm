@@ -4,7 +4,7 @@ import elmPlugin from 'vite-plugin-elm'
 export default defineConfig({
     plugins: [elmPlugin()],
     server: {
-        port: 5155,
-        host: '127.0.0.1'
+        port: 3000,
+        host: true // 全てのネットワークインターフェースでリッスンするように変更
     },
 })
