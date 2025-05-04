@@ -23,11 +23,58 @@
     }
 
     .nav-list {
-        @apply flex list-none;
+        @apply flex list-none items-center;
     }
 
     .nav-item {
         @apply ml-8 cursor-pointer transition-colors duration-300 hover:text-secondary;
+    }
+
+    /* ユーザーメニュー */
+    .user-menu {
+        @apply flex items-center;
+    }
+
+    .user-info {
+        @apply flex items-center mr-4;
+    }
+
+    .user-avatar {
+        @apply w-8 h-8 rounded-full mr-2 border-2 border-white;
+    }
+
+    .user-avatar-placeholder {
+        @apply w-8 h-8 rounded-full mr-2 bg-secondary flex items-center justify-center text-white font-bold;
+    }
+
+    .user-name {
+        @apply text-sm text-white max-w-[100px] truncate;
+    }
+
+    /* エラーメッセージ */
+    .error-message {
+        @apply bg-red-100 text-red-700 p-4 rounded mb-4 border border-red-300;
+    }
+
+    /* ログインページ */
+    .login {
+        @apply bg-white rounded-lg shadow-md p-8 mt-5 max-w-md mx-auto;
+    }
+
+    .login-buttons {
+        @apply flex flex-col gap-4 mt-5;
+    }
+
+    .google-sign-in {
+        @apply bg-white text-gray-700 py-3 px-4 border border-gray-300 rounded shadow flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors;
+    }
+
+    .login-status {
+        @apply text-center;
+    }
+
+    .logout-button {
+        @apply bg-primary text-white py-2 px-4 rounded mt-4 hover:bg-opacity-90 transition-colors;
     }
 
     /* レビューカード */

@@ -1,16 +1,47 @@
-module Main exposing (main)
+port module Main exposing (main)
 
 import Browser
 import Browser.Navigation as Nav
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick)
+import Json.Decode as Decode exposing (Decoder)
 import Time
 import Url
 
 
 
+-- ポート定義
+
+
+port requestLogin : () -> Cmd msg
+
+
+port requestLogout : () -> Cmd msg
+
+
+port receiveUser : (Decode.Value -> msg) -> Sub msg
+
+
+port receiveError : (Decode.Value -> msg) -> Sub msg
+
+
+
 -- モデル定義
+
+
+type alias User =
+    { uid : String
+    , displayName : String
+    , email : String
+    , photoURL : Maybe String
+    }
+
+
+type alias Error =
+    { code : String
+    , message : String
+    }
 
 
 type alias Review =
@@ -32,6 +63,8 @@ type alias Model =
     { key : Nav.Key
     , page : Page
     , reviews : List Review
+    , user : Maybe User
+    , error : Maybe Error
     }
 
 
@@ -45,14 +78,52 @@ type Page
     | NotFound
 
 
-init : () -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
-init _ _ key =
+type alias Flags =
+    { user : Maybe User
+    }
+
+
+init : Decode.Value -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
+init flags _ key =
+    let
+        decodedFlags =
+            case Decode.decodeValue flagsDecoder flags of
+                Ok value ->
+                    value
+
+                Err _ ->
+                    { user = Nothing }
+    in
     ( { key = key
       , page = Home
       , reviews = sampleReviews
+      , user = decodedFlags.user
+      , error = Nothing
       }
     , Cmd.none
     )
+
+
+flagsDecoder : Decoder Flags
+flagsDecoder =
+    Decode.map Flags
+        (Decode.field "user" (Decode.nullable userDecoder))
+
+
+userDecoder : Decoder User
+userDecoder =
+    Decode.map4 User
+        (Decode.field "uid" Decode.string)
+        (Decode.field "displayName" Decode.string)
+        (Decode.field "email" Decode.string)
+        (Decode.field "photoURL" (Decode.nullable Decode.string))
+
+
+errorDecoder : Decoder Error
+errorDecoder =
+    Decode.map2 Error
+        (Decode.field "code" Decode.string)
+        (Decode.field "message" Decode.string)
 
 
 sampleReviews : List Review
@@ -105,6 +176,10 @@ type Msg
     | UrlChanged Url.Url
     | NavigateTo Page
     | LikeReview String
+    | LogIn
+    | LogOut
+    | ReceivedUser Decode.Value
+    | ReceivedError Decode.Value
 
 
 
@@ -144,6 +219,28 @@ update msg model =
             , Cmd.none
             )
 
+        LogIn ->
+            ( model, requestLogin () )
+
+        LogOut ->
+            ( model, requestLogout () )
+
+        ReceivedUser value ->
+            case Decode.decodeValue (Decode.nullable userDecoder) value of
+                Ok maybeUser ->
+                    ( { model | user = maybeUser, error = Nothing }, Cmd.none )
+
+                Err error ->
+                    ( { model | error = Just { code = "decode-error", message = Decode.errorToString error } }, Cmd.none )
+
+        ReceivedError value ->
+            case Decode.decodeValue errorDecoder value of
+                Ok error ->
+                    ( { model | error = Just error }, Cmd.none )
+
+                Err decodeError ->
+                    ( { model | error = Just { code = "decode-error", message = Decode.errorToString decodeError } }, Cmd.none )
+
 
 
 -- ビュー関数
@@ -153,14 +250,21 @@ view : Model -> Browser.Document Msg
 view model =
     { title = "SakElm - お酒レビューアプリ"
     , body =
-        [ viewHeader
+        [ viewHeader model
         , div [ class "container" ]
-            [ case model.page of
+            [ case model.error of
+                Just error ->
+                    div [ class "error-message" ]
+                        [ text ("エラー: " ++ error.message) ]
+
+                Nothing ->
+                    text ""
+            , case model.page of
                 Home ->
                     viewHome model
 
                 Login ->
-                    viewLogin
+                    viewLogin model
 
                 Register ->
                     viewRegister
@@ -182,16 +286,31 @@ view model =
     }
 
 
-viewHeader : Html Msg
-viewHeader =
+viewHeader : Model -> Html Msg
+viewHeader model =
     header [ class "header" ]
         [ div [ class "logo" ] [ text "SakElm" ]
         , nav [ class "nav" ]
             [ ul [ class "nav-list" ]
                 [ li [ class "nav-item", onClick (NavigateTo Home) ] [ text "ホーム" ]
                 , li [ class "nav-item", onClick (NavigateTo BeverageList) ] [ text "お酒一覧" ]
-                , li [ class "nav-item", onClick (NavigateTo Login) ] [ text "ログイン" ]
-                , li [ class "nav-item", onClick (NavigateTo Register) ] [ text "新規登録" ]
+                , case model.user of
+                    Just user ->
+                        div [ class "user-menu" ]
+                            [ div [ class "user-info" ]
+                                [ case user.photoURL of
+                                    Just url ->
+                                        img [ src url, class "user-avatar" ] []
+
+                                    Nothing ->
+                                        div [ class "user-avatar-placeholder" ] [ text (String.left 1 user.displayName) ]
+                                , span [ class "user-name" ] [ text user.displayName ]
+                                ]
+                            , li [ class "nav-item", onClick LogOut ] [ text "ログアウト" ]
+                            ]
+
+                    Nothing ->
+                        li [ class "nav-item", onClick (NavigateTo Login) ] [ text "ログイン" ]
                 ]
             ]
         ]
@@ -250,11 +369,22 @@ viewRating rating =
         )
 
 
-viewLogin : Html Msg
-viewLogin =
+viewLogin : Model -> Html Msg
+viewLogin model =
     div [ class "login" ]
         [ h1 [] [ text "ログイン" ]
-        , div [] [ text "ここにログインフォームが入ります" ]
+        , case model.user of
+            Just user ->
+                div [ class "login-status" ]
+                    [ p [] [ text ("こんにちは、" ++ user.displayName ++ "さん！") ]
+                    , button [ class "logout-button", onClick LogOut ] [ text "ログアウト" ]
+                    ]
+
+            Nothing ->
+                div [ class "login-buttons" ]
+                    [ button [ class "google-sign-in", onClick LogIn ]
+                        [ text "Googleでログイン" ]
+                    ]
         ]
 
 
@@ -327,16 +457,28 @@ viewFooter =
 
 
 
+-- サブスクリプション
+
+
+subscriptions : Model -> Sub Msg
+subscriptions _ =
+    Sub.batch
+        [ receiveUser ReceivedUser
+        , receiveError ReceivedError
+        ]
+
+
+
 -- メイン
 
 
-main : Program () Model Msg
+main : Program Decode.Value Model Msg
 main =
     Browser.application
         { init = init
         , view = view
         , update = update
-        , subscriptions = \_ -> Sub.none
+        , subscriptions = subscriptions
         , onUrlChange = UrlChanged
         , onUrlRequest = LinkClicked
         }
