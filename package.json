@@ -10,6 +10,7 @@
   "license": "ISC",
   "description": "",
   "devDependencies": {
+    "elm-format": "^0.8.7",
     "vite": "^6.3.4",
     "vite-plugin-elm": "^3.0.1"
   }
