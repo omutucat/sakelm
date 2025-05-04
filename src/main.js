@@ -1,10 +1,10 @@
 import { Elm } from './Main.elm'
 import './styles.css'
-import { signInWithGoogle, signOut, onAuthStateChanged, getCurrentUser } from './firebase.js'
-import { firebaseConfig } from './config.js';
+import { signInWithGoogle, signOut, onAuthStateChanged, getCurrentUser, saveReviewToFirebase } from './firebase.js'
+import { firebaseConfig } from './config.js'
 
 // Firebase の初期化
-firebase.initializeApp(firebaseConfig);
+firebase.initializeApp(firebaseConfig)
 
 // アプリ初期化
 const app = Elm.Main.init({
@@ -45,6 +45,39 @@ app.ports.requestLogout.subscribe(() => {
                 message: error.message
             })
         })
+})
+
+// レビュー保存リクエストの処理
+app.ports.saveReview.subscribe((reviewData) => {
+    const currentUser = getCurrentUser();
+
+    if (!currentUser) {
+        app.ports.receiveError.send({
+            code: "auth-error",
+            message: "レビューを投稿するにはログインしてください"
+        });
+        return;
+    }
+
+    // 画像ファイル処理はここでは省略（ハリボテ）
+    // 実際にはアップロード処理などを行う
+
+    saveReviewToFirebase(reviewData)
+        .then((newReview) => {
+            app.ports.reviewSaved.send({
+                success: true,
+                review: newReview
+            });
+        })
+        .catch(error => {
+            app.ports.receiveError.send({
+                code: error.code || "unknown-error",
+                message: error.message || "レビューの保存中にエラーが発生しました"
+            });
+            app.ports.reviewSaved.send({
+                success: false
+            });
+        });
 })
 
 // Firebase認証状態の監視

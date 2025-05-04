@@ -4,8 +4,10 @@ import Browser
 import Browser.Navigation as Nav
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (onClick)
+import Html.Events exposing (onClick, onInput, onSubmit)
 import Json.Decode as Decode exposing (Decoder)
+import Json.Decode.Pipeline as Pipeline
+import Json.Encode as Encode
 import Time
 import Url
 
@@ -24,6 +26,12 @@ port receiveUser : (Decode.Value -> msg) -> Sub msg
 
 
 port receiveError : (Decode.Value -> msg) -> Sub msg
+
+
+port saveReview : Encode.Value -> Cmd msg
+
+
+port reviewSaved : (Decode.Value -> msg) -> Sub msg
 
 
 
@@ -59,12 +67,44 @@ type alias Review =
     }
 
 
+type alias ReviewForm =
+    { beverageId : String
+    , beverageName : String
+    , rating : Int
+    , title : String
+    , content : String
+    , imageFile : Maybe String -- 実際は画像ファイル参照だがハリボテ
+    }
+
+
+emptyReviewForm : ReviewForm
+emptyReviewForm =
+    { beverageId = ""
+    , beverageName = ""
+    , rating = 3
+    , title = ""
+    , content = ""
+    , imageFile = Nothing
+    }
+
+
 type alias Model =
     { key : Nav.Key
     , page : Page
     , reviews : List Review
     , user : Maybe User
     , error : Maybe Error
+    , reviewForm : ReviewForm
+    , formSubmitting : Bool
+    , formSuccess : Bool
+    , beverages : List Beverage -- お酒のリストを追加
+    }
+
+
+type alias Beverage =
+    { id : String
+    , name : String
+    , category : String
     }
 
 
@@ -75,6 +115,7 @@ type Page
     | BeverageList
     | BeverageDetail String
     | ReviewDetail String
+    | NewReview
     | NotFound
 
 
@@ -99,6 +140,10 @@ init flags _ key =
       , reviews = sampleReviews
       , user = decodedFlags.user
       , error = Nothing
+      , reviewForm = emptyReviewForm
+      , formSubmitting = False
+      , formSuccess = False
+      , beverages = sampleBeverages
       }
     , Cmd.none
     )
@@ -167,6 +212,16 @@ sampleReviews =
     ]
 
 
+sampleBeverages : List Beverage
+sampleBeverages =
+    [ { id = "bev1", name = "山崎12年", category = "ウイスキー" }
+    , { id = "bev2", name = "獺祭 純米大吟醸", category = "日本酒" }
+    , { id = "bev3", name = "よなよなエール", category = "ビール" }
+    , { id = "bev4", name = "久保田 千寿", category = "日本酒" }
+    , { id = "bev5", name = "ヘネシーXO", category = "ブランデー" }
+    ]
+
+
 
 -- メッセージ定義
 
@@ -180,6 +235,17 @@ type Msg
     | LogOut
     | ReceivedUser Decode.Value
     | ReceivedError Decode.Value
+    | UpdateReviewForm ReviewFormField String
+    | SetRating Int
+    | SubmitReviewForm
+    | ReviewSaved Decode.Value
+
+
+type ReviewFormField
+    = BeverageField
+    | TitleField
+    | ContentField
+    | ImageField
 
 
 
@@ -241,6 +307,146 @@ update msg model =
                 Err decodeError ->
                     ( { model | error = Just { code = "decode-error", message = Decode.errorToString decodeError } }, Cmd.none )
 
+        UpdateReviewForm field value ->
+            let
+                form =
+                    model.reviewForm
+
+                updatedForm =
+                    case field of
+                        BeverageField ->
+                            -- 選択されたお酒IDからお酒名も設定する
+                            let
+                                selectedBeverage =
+                                    model.beverages
+                                        |> List.filter (\b -> b.id == value)
+                                        |> List.head
+
+                                beverageName =
+                                    case selectedBeverage of
+                                        Just beverage ->
+                                            beverage.name
+
+                                        Nothing ->
+                                            ""
+                            in
+                            { form | beverageId = value, beverageName = beverageName }
+
+                        TitleField ->
+                            { form | title = value }
+
+                        ContentField ->
+                            { form | content = value }
+
+                        ImageField ->
+                            { form | imageFile = Just value }
+            in
+            ( { model | reviewForm = updatedForm }, Cmd.none )
+
+        SetRating rating ->
+            let
+                form =
+                    model.reviewForm
+
+                updatedForm =
+                    { form | rating = rating }
+            in
+            ( { model | reviewForm = updatedForm }, Cmd.none )
+
+        SubmitReviewForm ->
+            case model.user of
+                Just user ->
+                    if String.isEmpty model.reviewForm.beverageId || String.isEmpty model.reviewForm.title then
+                        ( { model | error = Just { code = "validation-error", message = "お酒と評価タイトルは必須です" } }, Cmd.none )
+
+                    else
+                        let
+                            reviewData =
+                                Encode.object
+                                    [ ( "userId", Encode.string user.uid )
+                                    , ( "userName", Encode.string user.displayName )
+                                    , ( "beverageId", Encode.string model.reviewForm.beverageId )
+                                    , ( "beverageName", Encode.string model.reviewForm.beverageName )
+                                    , ( "rating", Encode.int model.reviewForm.rating )
+                                    , ( "title", Encode.string model.reviewForm.title )
+                                    , ( "content", Encode.string model.reviewForm.content )
+                                    , ( "imageFile", Maybe.withDefault Encode.null (Maybe.map Encode.string model.reviewForm.imageFile) )
+                                    ]
+                        in
+                        ( { model | formSubmitting = True }, saveReview reviewData )
+
+                Nothing ->
+                    ( { model | error = Just { code = "auth-error", message = "投稿するにはログインしてください" } }, Cmd.none )
+
+        ReviewSaved value ->
+            case Decode.decodeValue (Decode.field "success" Decode.bool) value of
+                Ok success ->
+                    if success then
+                        case Decode.decodeValue (Decode.field "review" reviewDecoder) value of
+                            Ok newReview ->
+                                ( { model
+                                    | reviewForm = emptyReviewForm
+                                    , formSubmitting = False
+                                    , formSuccess = True
+                                    , reviews = newReview :: model.reviews
+                                    , page = Home
+                                  }
+                                , Cmd.none
+                                )
+
+                            Err _ ->
+                                ( { model
+                                    | formSubmitting = False
+                                    , formSuccess = True
+                                    , page = Home
+                                  }
+                                , Cmd.none
+                                )
+
+                    else
+                        ( { model
+                            | formSubmitting = False
+                            , error = Just { code = "save-error", message = "レビューの保存に失敗しました" }
+                          }
+                        , Cmd.none
+                        )
+
+                Err error ->
+                    ( { model
+                        | formSubmitting = False
+                        , error = Just { code = "decode-error", message = Decode.errorToString error }
+                      }
+                    , Cmd.none
+                    )
+
+
+reviewDecoder : Decoder Review
+reviewDecoder =
+    Decode.succeed
+        (\id userId userName beverageId beverageName rating title content imageUrl ->
+            { id = id
+            , userId = userId
+            , userName = userName
+            , beverageId = beverageId
+            , beverageName = beverageName
+            , rating = rating
+            , title = title
+            , content = content
+            , imageUrl = imageUrl
+            , likes = 0
+            , createdAt = Time.millisToPosix 0
+            }
+        )
+        |> Pipeline.required "id" Decode.string
+        |> Pipeline.required "userId" Decode.string
+        |> Pipeline.required "userName" Decode.string
+        |> Pipeline.required "beverageId" Decode.string
+        |> Pipeline.required "beverageName" Decode.string
+        |> Pipeline.required "rating" Decode.int
+        |> Pipeline.required "title" Decode.string
+        |> Pipeline.required "content" Decode.string
+        |> Pipeline.required "imageUrl" (Decode.nullable Decode.string)
+
 
 
 -- ビュー関数
@@ -270,13 +476,16 @@ view model =
                     viewRegister
 
                 BeverageList ->
-                    viewBeverageList
+                    viewBeverageList model
 
                 BeverageDetail id ->
                     viewBeverageDetail id
 
                 ReviewDetail id ->
                     viewReviewDetail id model
+
+                NewReview ->
+                    viewNewReview model
 
                 NotFound ->
                     viewNotFound
@@ -294,6 +503,12 @@ viewHeader model =
             [ ul [ class "nav-list" ]
                 [ li [ class "nav-item", onClick (NavigateTo Home) ] [ text "ホーム" ]
                 , li [ class "nav-item", onClick (NavigateTo BeverageList) ] [ text "お酒一覧" ]
+                , case model.user of
+                    Just _ ->
+                        li [ class "nav-item", onClick (NavigateTo NewReview) ] [ text "レビューを投稿" ]
+
+                    Nothing ->
+                        text ""
                 , case model.user of
                     Just user ->
                         div [ class "user-menu" ]
@@ -396,11 +611,23 @@ viewRegister =
         ]
 
 
-viewBeverageList : Html Msg
-viewBeverageList =
+viewBeverageList : Model -> Html Msg
+viewBeverageList model =
     div [ class "beverage-list" ]
         [ h1 [] [ text "お酒一覧" ]
-        , div [] [ text "ここにお酒のリストが入ります" ]
+        , div [ class "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5" ]
+            (List.map
+                (\beverage ->
+                    div
+                        [ class "bg-white rounded-lg shadow-md p-5 cursor-pointer hover:translate-y-[-5px] hover:shadow-lg transition-transform"
+                        , onClick (NavigateTo (BeverageDetail beverage.id))
+                        ]
+                        [ h3 [] [ text beverage.name ]
+                        , p [] [ text ("カテゴリー: " ++ beverage.category) ]
+                        ]
+                )
+                model.beverages
+            )
         ]
 
 
@@ -441,6 +668,120 @@ viewReviewDetail id model =
             div [] [ text "レビューが見つかりません" ]
 
 
+viewNewReview : Model -> Html Msg
+viewNewReview model =
+    div [ class "new-review bg-white rounded-lg shadow-md p-8 mt-5" ]
+        [ h1 [] [ text "新規レビューを投稿" ]
+        , case model.user of
+            Nothing ->
+                div []
+                    [ p [] [ text "レビューを投稿するにはログインが必要です。" ]
+                    , button [ class "button-primary", onClick (NavigateTo Login) ] [ text "ログイン" ]
+                    ]
+
+            Just _ ->
+                if model.formSubmitting then
+                    div [ class "text-center py-8" ]
+                        [ p [] [ text "送信中..." ]
+                        ]
+
+                else if model.formSuccess then
+                    div [ class "text-center py-8" ]
+                        [ p [] [ text "レビューが投稿されました！" ]
+                        , button [ class "button-primary", onClick (NavigateTo Home) ] [ text "ホームに戻る" ]
+                        ]
+
+                else
+                    Html.form [ class "review-form", onSubmit SubmitReviewForm ]
+                        [ div [ class "form-group" ]
+                            [ label [ for "beverage" ] [ text "お酒を選択" ]
+                            , select
+                                [ id "beverage"
+                                , class "form-select"
+                                , onInput (UpdateReviewForm BeverageField)
+                                , required True
+                                ]
+                                (option [ value "" ] [ text "-- 選択してください --" ]
+                                    :: List.map
+                                        (\beverage ->
+                                            option [ value beverage.id ] [ text beverage.name ]
+                                        )
+                                        model.beverages
+                                )
+                            ]
+                        , div [ class "form-group" ]
+                            [ label [] [ text "評価" ]
+                            , div [ class "flex items-center" ]
+                                (List.map
+                                    (\i ->
+                                        span
+                                            [ class
+                                                (if i <= model.reviewForm.rating then
+                                                    "star filled cursor-pointer text-2xl mx-1"
+
+                                                 else
+                                                    "star cursor-pointer text-2xl mx-1"
+                                                )
+                                            , onClick (SetRating i)
+                                            ]
+                                            [ text "★" ]
+                                    )
+                                    (List.range 1 5)
+                                )
+                            ]
+                        , div [ class "form-group" ]
+                            [ label [ for "title" ] [ text "タイトル" ]
+                            , input
+                                [ id "title"
+                                , class "form-input"
+                                , type_ "text"
+                                , placeholder "レビューのタイトル"
+                                , value model.reviewForm.title
+                                , onInput (UpdateReviewForm TitleField)
+                                , required True
+                                ]
+                                []
+                            ]
+                        , div [ class "form-group" ]
+                            [ label [ for "content" ] [ text "内容" ]
+                            , textarea
+                                [ id "content"
+                                , class "form-textarea"
+                                , placeholder "レビューの内容を入力..."
+                                , rows 5
+                                , value model.reviewForm.content
+                                , onInput (UpdateReviewForm ContentField)
+                                ]
+                                []
+                            ]
+                        , div [ class "form-group" ]
+                            [ label [ for "image" ] [ text "画像" ]
+                            , input
+                                [ id "image"
+                                , class "form-input"
+                                , type_ "file"
+                                , accept "image/*"
+                                , onInput (UpdateReviewForm ImageField)
+                                ]
+                                []
+                            ]
+                        , div [ class "form-actions" ]
+                            [ button
+                                [ class "button-primary"
+                                , type_ "submit"
+                                ]
+                                [ text "投稿する" ]
+                            , button
+                                [ class "button-secondary ml-4"
+                                , type_ "button"
+                                , onClick (NavigateTo Home)
+                                ]
+                                [ text "キャンセル" ]
+                            ]
+                        ]
+        ]
+
+
 viewNotFound : Html Msg
 viewNotFound =
     div [ class "not-found" ]
@@ -465,6 +806,7 @@ subscriptions _ =
     Sub.batch
         [ receiveUser ReceivedUser
         , receiveError ReceivedError
+        , reviewSaved ReviewSaved
         ]
 
 

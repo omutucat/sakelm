@@ -143,6 +143,37 @@
         @apply mt-8 border-t border-medium-gray pt-5;
     }
 
+    /* フォーム関連 */
+    .form-group {
+        @apply mb-6;
+    }
+
+    .form-input,
+    .form-select,
+    .form-textarea {
+        @apply block w-full p-3 border border-medium-gray rounded mt-2 focus:outline-none focus:ring focus:ring-primary focus:ring-opacity-50;
+    }
+
+    .form-textarea {
+        @apply resize-y;
+    }
+
+    .form-select {
+        @apply bg-white;
+    }
+
+    .form-actions {
+        @apply flex justify-end mt-8;
+    }
+
+    .button-primary {
+        @apply bg-primary text-white py-2 px-6 rounded hover:bg-opacity-90 transition-colors;
+    }
+
+    .button-secondary {
+        @apply bg-medium-gray text-gray-800 py-2 px-6 rounded hover:bg-opacity-90 transition-colors;
+    }
+
     /* フッター */
     .footer {
         @apply bg-primary text-white text-center py-5 mt-12;

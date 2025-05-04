@@ -1,26 +1,74 @@
-// Firebase SDK v9の互換モードを使用して認証機能を実装します
-const auth = firebase.auth;
+// Firebase認証関連の関数
 
-// Google認証プロバイダーの設定
-const googleProvider = new auth.GoogleAuthProvider();
-googleProvider.setCustomParameters({ prompt: 'select_account' });
+export function signInWithGoogle() {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    return firebase.auth().signInWithPopup(provider);
+}
 
-// Googleでサインイン
-export const signInWithGoogle = () => {
-    return auth().signInWithPopup(googleProvider);
-};
+export function signOut() {
+    return firebase.auth().signOut();
+}
 
-// サインアウト
-export const signOut = () => {
-    return auth().signOut();
-};
+export function getCurrentUser() {
+    return firebase.auth().currentUser;
+}
 
-// 認証状態の変更を監視するための関数
-export const onAuthStateChanged = (callback) => {
-    return auth().onAuthStateChanged(callback);
-};
+export function onAuthStateChanged(callback) {
+    return firebase.auth().onAuthStateChanged(callback);
+}
 
-// 現在のユーザー情報を取得
-export const getCurrentUser = () => {
-    return auth().currentUser;
-};
+// レビュー関連の関数
+export async function saveReviewToFirebase(reviewData) {
+    const db = firebase.firestore();
+    const storage = firebase.storage();
+
+    try {
+        // 現在のユーザー情報を取得
+        const currentUser = getCurrentUser();
+        if (!currentUser) {
+            throw new Error('ユーザーがログインしていません');
+        }
+
+        // レビューデータの準備
+        const timestamp = firebase.firestore.FieldValue.serverTimestamp();
+        const reviewToSave = {
+            userId: currentUser.uid,
+            userName: currentUser.displayName || 'Anonymous',
+            beverageId: reviewData.beverageId,
+            beverageName: reviewData.beverageName,
+            rating: reviewData.rating,
+            title: reviewData.title,
+            content: reviewData.content,
+            imageUrl: null, // 初期値はnull
+            likes: 0,
+            createdAt: timestamp
+        };
+
+        // 画像がある場合はアップロード処理
+        // ※実装は省略（ハリボテ）
+        if (reviewData.imageFile) {
+            // 実際はここでStorageにアップロード処理を行う
+            reviewToSave.imageUrl = `https://via.placeholder.com/300/300?text=${encodeURIComponent(reviewData.title)}`;
+        }
+
+        // Firestoreにレビューを保存
+        const reviewRef = await db.collection('reviews').add(reviewToSave);
+
+        // 保存したデータにIDを付けて返す
+        return {
+            id: reviewRef.id,
+            ...reviewToSave,
+            createdAt: Date.now() // タイムスタンプをミリ秒に変換
+        };
+
+    } catch (error) {
+        console.error('レビュー保存エラー:', error);
+        throw error;
+    }
+}
+
+// いいね機能（ハリボテ）
+export async function likeReview(reviewId) {
+    // 実装は省略
+    return { success: true };
+}

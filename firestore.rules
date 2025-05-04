@@ -2,16 +2,20 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // This rule allows anyone with your Firestore database reference to view, edit,
-    // and delete all data in your Firestore database. It is useful for getting
-    // started, but it is configured to expire after 30 days because it
-    // leaves your app open to attackers. At that time, all client
-    // requests to your Firestore database will be denied.
-    //
-    // Make sure to write security rules for your app before that time, or else
-    // all client requests to your Firestore database will be denied until you Update
-    // your rules
+    match /reviews/{reviewId} {
+      // ログインしているユーザーは全てのレビューを読むことができる
+      allow read: if request.auth != null;
+      
+      // ログインしているユーザーは新しいレビューを作成できる
+      allow create: if request.auth != null && 
+                      request.resource.data.userId == request.auth.uid;
+                      
+      // 自分のレビューのみ更新/削除できる
+      allow update, delete: if request.auth != null && 
+                               request.auth.uid == resource.data.userId;
+    }
+    
+    // その他のルール
     match /{document=**} {
       allow read, write: if request.time < timestamp.date(2025, 6, 3);
     }
