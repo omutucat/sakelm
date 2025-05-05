@@ -114,6 +114,9 @@ type alias Beverage =
     { id : String
     , name : String
     , category : String
+    , alcoholPercentage : Maybe Float -- 度数を追加 (Maybe Float)
+    , manufacturer : Maybe String -- 製造元を追加 (Maybe String)
+    , description : Maybe String -- 説明を追加 (Maybe String)
     }
 
 
@@ -184,11 +187,41 @@ errorDecoder =
 
 sampleBeverages : List Beverage
 sampleBeverages =
-    [ { id = "bev1", name = "山崎12年", category = "ウイスキー" }
-    , { id = "bev2", name = "獺祭 純米大吟醸", category = "日本酒" }
-    , { id = "bev3", name = "よなよなエール", category = "ビール" }
-    , { id = "bev4", name = "久保田 千寿", category = "日本酒" }
-    , { id = "bev5", name = "ヘネシーXO", category = "ブランデー" }
+    [ { id = "bev1"
+      , name = "山崎12年"
+      , category = "ウイスキー"
+      , alcoholPercentage = Just 43.0
+      , manufacturer = Just "サントリー"
+      , description = Just "日本のシングルモルトウイスキーの代表格。繊細で複雑な味わい。"
+      }
+    , { id = "bev2"
+      , name = "獺祭 純米大吟醸"
+      , category = "日本酒"
+      , alcoholPercentage = Just 16.0
+      , manufacturer = Just "旭酒造"
+      , description = Just "華やかな香りと綺麗な味わいが特徴の純米大吟醸酒。"
+      }
+    , { id = "bev3"
+      , name = "よなよなエール"
+      , category = "ビール"
+      , alcoholPercentage = Just 5.5
+      , manufacturer = Just "ヤッホーブルーイング"
+      , description = Just "アメリカンペールエールスタイルのクラフトビール。柑橘系の香りが豊か。"
+      }
+    , { id = "bev4"
+      , name = "久保田 千寿"
+      , category = "日本酒"
+      , alcoholPercentage = Just 15.0
+      , manufacturer = Just "朝日酒造"
+      , description = Just "食事と楽しむ吟醸酒。穏やかな香りとスッキリとした味わい。"
+      }
+    , { id = "bev5"
+      , name = "ヘネシーXO"
+      , category = "ブランデー"
+      , alcoholPercentage = Just 40.0
+      , manufacturer = Just "ヘネシー"
+      , description = Just "コニャックの最高峰の一つ。豊かでパワフルな味わい。"
+      }
     ]
 
 
@@ -682,20 +715,35 @@ viewBeverageList model =
         ]
 
 
-
--- viewBeverageDetail 関数の実装を更新
-
-
 viewBeverageDetail : String -> Model -> Html Msg
 viewBeverageDetail id model =
     case List.head (List.filter (\b -> b.id == id) model.beverages) of
         Just beverage ->
             div [ class "beverage-detail bg-white rounded-lg shadow-md p-8 mt-5" ]
                 [ h1 [] [ text beverage.name ]
-                , div [ class "mb-4" ]
-                    [ strong [] [ text "カテゴリー: " ]
-                    , text beverage.category
+                , div [ class "mb-4 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2" ]
+                    [ div []
+                        [ strong [] [ text "カテゴリー: " ]
+                        , text beverage.category
+                        ]
+                    , div []
+                        [ strong [] [ text "度数: " ]
+                        , text (Maybe.map (\p -> String.fromFloat p ++ "%") beverage.alcoholPercentage |> Maybe.withDefault "不明")
+                        ]
+                    , div []
+                        [ strong [] [ text "製造元: " ]
+                        , text (Maybe.withDefault "不明" beverage.manufacturer)
+                        ]
                     ]
+                , case beverage.description of
+                    Just desc ->
+                        div [ class "mt-4 mb-6" ]
+                            [ strong [] [ text "説明: " ]
+                            , p [ class "mt-1" ] [ text desc ]
+                            ]
+
+                    Nothing ->
+                        text ""
 
                 -- TODO: 将来的に追加されるであろうお酒の詳細情報を表示する箇所
                 -- 例:
