@@ -10,9 +10,11 @@ import Json.Decode.Pipeline as Pipeline
 import Json.Encode as Encode
 import Time
 import Url
+import Url.Parser as Parser exposing ((</>), Parser, int, map, oneOf, s, string)
 
 
 
+-- 追加
 -- ポート定義
 
 
@@ -120,7 +122,7 @@ type Page
     | Login
     | Register
     | BeverageList
-    | BeverageDetail String
+    | BeverageDetail String -- 追加: お酒IDを保持
     | ReviewDetail String
     | NewReview
     | NotFound
@@ -219,6 +221,23 @@ type ReviewFormField
 
 
 
+-- URL パーサーの定義
+
+
+pageParser : Parser (Page -> a) a
+pageParser =
+    oneOf
+        [ Parser.map Home Parser.top
+        , Parser.map Login (Parser.s "login")
+        , Parser.map Register (Parser.s "register")
+        , Parser.map BeverageList (Parser.s "beverages")
+        , Parser.map BeverageDetail (Parser.s "beverages" </> Parser.string) -- /beverages/{id}
+        , Parser.map ReviewDetail (Parser.s "reviews" </> Parser.string) -- /reviews/{id}
+        , Parser.map NewReview (Parser.s "new-review")
+        ]
+
+
+
 -- 更新関数
 
 
@@ -234,10 +253,45 @@ update msg model =
                     ( model, Nav.load href )
 
         UrlChanged url ->
-            ( { model | error = Nothing, reviewForm = emptyReviewForm }, Cmd.none )
+            -- Url.Parser を使用してページを決定
+            let
+                newPage =
+                    Maybe.withDefault NotFound (Parser.parse pageParser url)
+            in
+            ( { model | page = newPage, error = Nothing, reviewForm = emptyReviewForm }, Cmd.none )
 
         NavigateTo page ->
-            ( { model | page = page, error = Nothing, reviewForm = emptyReviewForm }, Cmd.none )
+            -- URL を更新して UrlChanged をトリガーする
+            let
+                urlPath =
+                    case page of
+                        Home ->
+                            "/"
+
+                        Login ->
+                            "/login"
+
+                        Register ->
+                            "/register"
+
+                        BeverageList ->
+                            "/beverages"
+
+                        BeverageDetail id ->
+                            "/beverages/" ++ id
+
+                        ReviewDetail id ->
+                            "/reviews/" ++ id
+
+                        NewReview ->
+                            "/new-review"
+
+                        NotFound ->
+                            "/404"
+
+                -- または他の適切なパス
+            in
+            ( model, Nav.pushUrl model.key urlPath )
 
         LikeReview reviewId ->
             ( { model
@@ -408,18 +462,18 @@ update msg model =
 reviewDecoder : Decoder Review
 reviewDecoder =
     Decode.succeed Review
-        |> Pipeline.required "id" string
-        |> Pipeline.required "userId" string
-        |> Pipeline.required "userName" string
-        |> Pipeline.required "beverageId" string
-        |> Pipeline.required "beverageName" string
-        |> Pipeline.required "rating" int
-        |> Pipeline.required "title" string
-        |> Pipeline.required "content" string
-        |> Pipeline.required "imageUrl" (nullable string)
-        |> Pipeline.required "likes" int
+        |> Pipeline.required "id" Decode.string
+        |> Pipeline.required "userId" Decode.string
+        |> Pipeline.required "userName" Decode.string
+        |> Pipeline.required "beverageId" Decode.string
+        |> Pipeline.required "beverageName" Decode.string
+        |> Pipeline.required "rating" Decode.int
+        |> Pipeline.required "title" Decode.string
+        |> Pipeline.required "content" Decode.string
+        |> Pipeline.required "imageUrl" (nullable Decode.string)
+        |> Pipeline.required "likes" Decode.int
         -- createdAt は JavaScript 側でミリ秒に変換されている想定
-        |> Pipeline.required "createdAt" (Decode.map Time.millisToPosix int)
+        |> Pipeline.required "createdAt" (Decode.map Time.millisToPosix Decode.int)
 
 
 
@@ -453,8 +507,9 @@ view model =
                     viewBeverageList model
 
                 BeverageDetail id ->
-                    viewBeverageDetail id
+                    viewBeverageDetail id model
 
+                -- 呼び出しを追加
                 ReviewDetail id ->
                     viewReviewDetail id model
 
@@ -527,7 +582,17 @@ viewReviewCard review =
             [ h3 [] [ text review.title ]
             , div [ class "review-meta" ]
                 [ span [ class "review-author" ] [ text ("投稿者: " ++ review.userName) ]
-                , span [ class "review-beverage" ] [ text ("お酒: " ++ review.beverageName) ]
+
+                -- お酒名をクリック可能にする
+                , span
+                    [ class "review-beverage cursor-pointer hover:underline"
+                    , -- 親要素の onClick イベント伝播を停止し、メッセージを送信する
+                      Html.Events.stopPropagationOn "click"
+                        (Decode.succeed ( NavigateTo (BeverageDetail review.beverageId), True ))
+
+                    -- <- これで置き換え
+                    ]
+                    [ text ("お酒: " ++ review.beverageName) ]
                 ]
             ]
         , viewRating review.rating
@@ -539,7 +604,12 @@ viewReviewCard review =
             Nothing ->
                 div [] []
         , div [ class "review-footer" ]
-            [ button [ class "like-button", onClick (LikeReview review.id) ]
+            [ button
+                [ class "like-button"
+
+                -- LikeReview メッセージを送信し、親要素へのイベント伝播を停止する
+                , Html.Events.stopPropagationOn "click" (Decode.succeed ( LikeReview review.id, True ))
+                ]
                 [ text ("♥ " ++ String.fromInt review.likes) ]
             ]
         ]
@@ -601,7 +671,7 @@ viewBeverageList model =
                 (\beverage ->
                     div
                         [ class "bg-white rounded-lg shadow-md p-5 cursor-pointer hover:translate-y-[-5px] hover:shadow-lg transition-transform"
-                        , onClick (NavigateTo (BeverageDetail beverage.id))
+                        , onClick (NavigateTo (BeverageDetail beverage.id)) -- クリックイベントを追加
                         ]
                         [ h3 [] [ text beverage.name ]
                         , p [] [ text ("カテゴリー: " ++ beverage.category) ]
@@ -612,12 +682,55 @@ viewBeverageList model =
         ]
 
 
-viewBeverageDetail : String -> Html Msg
-viewBeverageDetail id =
-    div [ class "beverage-detail" ]
-        [ h1 [] [ text ("お酒の詳細: ID " ++ id) ]
-        , div [] [ text "ここにお酒の詳細情報が入ります" ]
-        ]
+
+-- viewBeverageDetail 関数の実装を更新
+
+
+viewBeverageDetail : String -> Model -> Html Msg
+viewBeverageDetail id model =
+    case List.head (List.filter (\b -> b.id == id) model.beverages) of
+        Just beverage ->
+            div [ class "beverage-detail bg-white rounded-lg shadow-md p-8 mt-5" ]
+                [ h1 [] [ text beverage.name ]
+                , div [ class "mb-4" ]
+                    [ strong [] [ text "カテゴリー: " ]
+                    , text beverage.category
+                    ]
+
+                -- TODO: 将来的に追加されるであろうお酒の詳細情報を表示する箇所
+                -- 例:
+                -- , p [] [ text ("製造元: " ++ Maybe.withDefault "不明" beverage.manufacturer) ]
+                -- , p [] [ text ("度数: " ++ Maybe.map String.fromFloat beverage.alcoholPercentage |> Maybe.withDefault "不明" ++ "%") ]
+                -- , p [] [ text ("説明: " ++ Maybe.withDefault "" beverage.description) ]
+                , h2 [ class "mt-8 mb-4 text-xl text-primary" ] [ text (beverage.name ++ " のレビュー") ]
+                , let
+                    relatedReviews =
+                        List.filter (\r -> r.beverageId == id) model.reviews
+                  in
+                  if List.isEmpty relatedReviews then
+                    p [] [ text "このお酒に関するレビューはまだありません。" ]
+
+                  else if model.reviewsLoading then
+                    div [ class "text-center py-8" ] [ text "レビューを読み込み中..." ]
+
+                  else
+                    div [ class "review-list" ] (List.map viewReviewCard relatedReviews)
+                , button
+                    [ class "button-primary mt-8"
+
+                    -- TODO: 新規レビューページにお酒IDを渡すように変更する
+                    -- 現状は新規レビューページに遷移するだけ
+                    , onClick (NavigateTo NewReview)
+                    ]
+                    [ text "このお酒のレビューを投稿する" ]
+                ]
+
+        Nothing ->
+            div [ class "not-found bg-white rounded-lg shadow-md p-8 mt-5" ]
+                [ h1 [] [ text "お酒が見つかりません" ]
+                , p [] [ text ("ID: " ++ id ++ " のお酒は見つかりませんでした。") ]
+                , button [ class "button-primary mt-4", onClick (NavigateTo BeverageList) ] [ text "お酒一覧に戻る" ]
+                ]
 
 
 viewReviewDetail : String -> Model -> Html Msg
@@ -628,7 +741,13 @@ viewReviewDetail id model =
                 [ h1 [] [ text review.title ]
                 , div [ class "review-meta" ]
                     [ span [ class "review-author" ] [ text ("投稿者: " ++ review.userName) ]
-                    , span [ class "review-beverage" ] [ text ("お酒: " ++ review.beverageName) ]
+
+                    -- お酒名をクリック可能にする
+                    , span
+                        [ class "review-beverage cursor-pointer hover:underline"
+                        , onClick (NavigateTo (BeverageDetail review.beverageId))
+                        ]
+                        [ text ("お酒: " ++ review.beverageName) ]
                     ]
                 , viewRating review.rating
                 , div [ class "review-content-full" ] [ text review.content ]
@@ -646,7 +765,11 @@ viewReviewDetail id model =
                 ]
 
         Nothing ->
-            div [] [ text "レビューが見つかりません" ]
+            div [ class "not-found bg-white rounded-lg shadow-md p-8 mt-5" ]
+                [ h1 [] [ text "レビューが見つかりません" ]
+                , p [] [ text ("ID: " ++ id ++ " のレビューは見つかりませんでした。") ]
+                , button [ class "button-primary mt-4", onClick (NavigateTo Home) ] [ text "ホームに戻る" ]
+                ]
 
 
 viewNewReview : Model -> Html Msg
