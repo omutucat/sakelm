@@ -5,12 +5,12 @@ import Browser.Navigation as Nav
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit)
-import Json.Decode as Decode exposing (Decoder, field, int, list, map, nullable, string)
+import Json.Decode as Decode exposing (Decoder, field, nullable)
 import Json.Decode.Pipeline as Pipeline
 import Json.Encode as Encode
 import Time
 import Url
-import Url.Parser as Parser exposing ((</>), Parser, int, map, oneOf, s, string)
+import Url.Parser as Parser exposing ((</>), Parser, oneOf)
 
 
 
