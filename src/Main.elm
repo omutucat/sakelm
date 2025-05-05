@@ -351,8 +351,20 @@ update msg model =
             let
                 newPage =
                     Maybe.withDefault NotFound (Parser.parse pageParser url)
+
+                -- ページ遷移時にフォームの状態をリセットする
+                resetFormState page model_ =
+                    case page of
+                        NewReview ->
+                            { model_ | formSuccess = False, reviewForm = emptyReviewForm }
+
+                        NewBeverage ->
+                            { model_ | beverageFormSuccess = False, beverageForm = emptyBeverageForm }
+
+                        _ ->
+                            model_
             in
-            ( { model | page = newPage, error = Nothing, reviewForm = emptyReviewForm }, Cmd.none )
+            ( { model | page = newPage, error = Nothing } |> resetFormState newPage, Cmd.none )
 
         NavigateTo page ->
             -- URL を更新して UrlChanged をトリガーする
@@ -626,7 +638,6 @@ update msg model =
                                     , beverageFormSubmitting = False
                                     , beverageFormSuccess = True
                                     , beverages = newBeverage :: model.beverages
-                                    , page = BeverageList
                                   }
                                 , Cmd.none
                                 )
@@ -635,7 +646,6 @@ update msg model =
                                 ( { model
                                     | beverageFormSubmitting = False
                                     , beverageFormSuccess = True
-                                    , page = BeverageList
                                     , error = Just { code = "decode-error", message = "受信したお酒データの形式が正しくありません: " ++ Decode.errorToString decodeError }
                                   }
                                 , Cmd.none
