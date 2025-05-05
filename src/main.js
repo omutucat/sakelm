@@ -13,6 +13,9 @@ import {
     getFirestore,
     collection,
     addDoc,
+    getDocs, // getDocs をインポート
+    query, // query をインポート
+    orderBy, // orderBy をインポート
     serverTimestamp,
     Timestamp // Timestamp をインポート
 } from "firebase/firestore";
@@ -103,17 +106,58 @@ async function saveReviewToFirebase(reviewData) {
         // 保存したデータにIDを付けて返す
         // createdAt はサーバーで設定されるため、クライアント側で Date.now() を使う代わりに null または推定値を返す
         // Elm側で Timestamp を扱えない場合は、ここでミリ秒に変換する必要があるかもしれない
-        return {
+        const savedData = {
             id: reviewRef.id,
             ...reviewToSave,
             // Firestore の Timestamp はオブジェクト。Elm に渡す前に変換が必要な場合がある
-            // 例: createdAt: Date.now() // または null のままにする
-            createdAt: Date.now() // ハリボテとして現在の時刻を設定
+            // createdAt: Date.now() // または null のままにする
+            createdAt: Date.now() // ハリボテとして現在の時刻を設定（保存直後なのでこれでOK）
         };
+        // imageUrl が null の場合、キー自体を削除するか、明示的に null を送る
+        if (savedData.imageUrl === null) {
+            delete savedData.imageUrl; // または savedData.imageUrl = null;
+        }
+        return savedData;
 
     } catch (error) {
         console.error('レビュー保存エラー:', error);
         throw error;
+    }
+}
+
+// Firestoreからレビューを取得する関数
+async function fetchReviewsFromFirebase() {
+    try {
+        const reviewsCollection = collection(db, 'reviews');
+        // createdAt フィールドで降順にソートするクエリを作成
+        const q = query(reviewsCollection, orderBy("createdAt", "desc"));
+        const querySnapshot = await getDocs(q);
+        const reviews = [];
+        querySnapshot.forEach((doc) => {
+            const data = doc.data();
+            // createdAt が Timestamp オブジェクトの場合、ミリ秒に変換
+            const createdAtMillis = data.createdAt instanceof Timestamp
+                ? data.createdAt.toMillis()
+                : Date.now(); // フォールバックとして現在時刻
+
+            reviews.push({
+                id: doc.id,
+                userId: data.userId,
+                userName: data.userName,
+                beverageId: data.beverageId,
+                beverageName: data.beverageName,
+                rating: data.rating,
+                title: data.title,
+                content: data.content,
+                imageUrl: data.imageUrl || null, // imageUrl が存在しない場合は null
+                likes: data.likes || 0, // likes が存在しない場合は 0
+                createdAt: createdAtMillis
+            });
+        });
+        return reviews;
+    } catch (error) {
+        console.error("レビュー取得エラー:", error);
+        throw error; // エラーを呼び出し元に伝える
     }
 }
 
@@ -183,7 +227,7 @@ app.ports.saveReview.subscribe((reviewData) => {
         .then((newReview) => {
             app.ports.reviewSaved.send({
                 success: true,
-                review: newReview
+                review: newReview // 保存成功時に新しいレビューデータをElmに送る
             });
         })
         .catch(error => {
@@ -197,6 +241,23 @@ app.ports.saveReview.subscribe((reviewData) => {
         });
 });
 
+// レビュー取得リクエストの処理
+app.ports.requestReviews.subscribe(() => {
+    fetchReviewsFromFirebase()
+        .then(reviews => {
+            app.ports.receiveReviews.send(reviews);
+        })
+        .catch(error => {
+            // エラーをElmに通知
+            app.ports.receiveError.send({
+                code: "fetch-reviews-error",
+                message: "レビューの取得中にエラーが発生しました: " + error.message
+            });
+            // 空のリストを送るか、エラー状態を維持するかはElm側の設計による
+            app.ports.receiveReviews.send([]);
+        });
+});
+
 // Firebase認証状態の監視
 onAuthStateChanged(user => {
     if (user) {
@@ -206,7 +267,11 @@ onAuthStateChanged(user => {
             email: user.email,
             photoURL: user.photoURL
         })
+        // ログイン時にレビューを再取得（任意）
+        // app.ports.requestReviews.send(); // initで既に呼んでいるので不要かも
     } else {
         app.ports.receiveUser.send(null)
+        // ログアウト時にもレビューを再取得（任意、公開レビューのみ表示する場合など）
+        // app.ports.requestReviews.send();
     }
 });

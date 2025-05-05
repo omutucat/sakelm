@@ -5,7 +5,7 @@ import Browser.Navigation as Nav
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit)
-import Json.Decode as Decode exposing (Decoder)
+import Json.Decode as Decode exposing (Decoder, field, int, list, map, nullable, string)
 import Json.Decode.Pipeline as Pipeline
 import Json.Encode as Encode
 import Time
@@ -32,6 +32,12 @@ port saveReview : Encode.Value -> Cmd msg
 
 
 port reviewSaved : (Decode.Value -> msg) -> Sub msg
+
+
+port requestReviews : () -> Cmd msg
+
+
+port receiveReviews : (Decode.Value -> msg) -> Sub msg
 
 
 
@@ -91,13 +97,14 @@ emptyReviewForm =
 type alias Model =
     { key : Nav.Key
     , page : Page
-    , reviews : List Review
+    , reviews : List Review -- Firestoreから取得したレビューを格納
     , user : Maybe User
     , error : Maybe Error
     , reviewForm : ReviewForm
     , formSubmitting : Bool
     , formSuccess : Bool
     , beverages : List Beverage -- お酒のリストを追加
+    , reviewsLoading : Bool -- レビュー読み込み中フラグを追加
     }
 
 
@@ -137,15 +144,17 @@ init flags _ key =
     in
     ( { key = key
       , page = Home
-      , reviews = sampleReviews
+      , reviews = [] -- 初期状態は空リスト
       , user = decodedFlags.user
       , error = Nothing
       , reviewForm = emptyReviewForm
       , formSubmitting = False
       , formSuccess = False
       , beverages = sampleBeverages
+      , reviewsLoading = True -- 初期状態は読み込み中
       }
-    , Cmd.none
+    , requestReviews ()
+      -- 初期化時にレビュー取得をリクエスト
     )
 
 
@@ -169,47 +178,6 @@ errorDecoder =
     Decode.map2 Error
         (Decode.field "code" Decode.string)
         (Decode.field "message" Decode.string)
-
-
-sampleReviews : List Review
-sampleReviews =
-    [ { id = "1"
-      , userId = "user1"
-      , userName = "田中太郎"
-      , beverageId = "bev1"
-      , beverageName = "山崎12年"
-      , rating = 5
-      , title = "素晴らしいウイスキー"
-      , content = "バランスの取れた味わいで、余韻も長く楽しめます。"
-      , imageUrl = Just "https://via.placeholder.com/150"
-      , likes = 12
-      , createdAt = Time.millisToPosix 1715000000000
-      }
-    , { id = "2"
-      , userId = "user2"
-      , userName = "佐藤花子"
-      , beverageId = "bev2"
-      , beverageName = "獺祭 純米大吟醸"
-      , rating = 4
-      , title = "フルーティで飲みやすい"
-      , content = "日本酒が苦手な方でも楽しめる、フルーティな味わいです。"
-      , imageUrl = Just "https://via.placeholder.com/150"
-      , likes = 8
-      , createdAt = Time.millisToPosix 1714900000000
-      }
-    , { id = "3"
-      , userId = "user3"
-      , userName = "鈴木一郎"
-      , beverageId = "bev3"
-      , beverageName = "よなよなエール"
-      , rating = 4
-      , title = "クラフトビールの定番"
-      , content = "ホップの香りが強く、苦味と甘みのバランスが良いです。"
-      , imageUrl = Nothing
-      , likes = 5
-      , createdAt = Time.millisToPosix 1714800000000
-      }
-    ]
 
 
 sampleBeverages : List Beverage
@@ -239,6 +207,8 @@ type Msg
     | SetRating Int
     | SubmitReviewForm
     | ReviewSaved Decode.Value
+    | RequestReviews -- レビュー取得リクエストメッセージ
+    | ReceivedReviews Decode.Value -- レビュー受信メッセージ
 
 
 type ReviewFormField
@@ -294,7 +264,8 @@ update msg model =
         ReceivedUser value ->
             case Decode.decodeValue (Decode.nullable userDecoder) value of
                 Ok maybeUser ->
-                    ( { model | user = maybeUser, error = Nothing }, Cmd.none )
+                    -- ユーザー状態が変わったらレビューを再取得
+                    ( { model | user = maybeUser, error = Nothing, reviewsLoading = True }, requestReviews () )
 
                 Err error ->
                     ( { model | error = Just { code = "decode-error", message = Decode.errorToString error } }, Cmd.none )
@@ -384,21 +355,24 @@ update msg model =
                     if success then
                         case Decode.decodeValue (Decode.field "review" reviewDecoder) value of
                             Ok newReview ->
+                                -- 新しいレビューをリストの先頭に追加
                                 ( { model
                                     | reviewForm = emptyReviewForm
                                     , formSubmitting = False
                                     , formSuccess = True
-                                    , reviews = newReview :: model.reviews
+                                    , reviews = newReview :: model.reviews -- Firestoreから再取得せず、ローカルで追加
                                     , page = Home
                                   }
                                 , Cmd.none
                                 )
 
-                            Err _ ->
+                            Err decodeError ->
+                                -- デコードエラーの場合でも成功メッセージは表示し、リストは更新しない（あるいはエラー表示）
                                 ( { model
                                     | formSubmitting = False
                                     , formSuccess = True
                                     , page = Home
+                                    , error = Just { code = "decode-error", message = "受信したレビューデータの形式が正しくありません: " ++ Decode.errorToString decodeError }
                                   }
                                 , Cmd.none
                                 )
@@ -419,33 +393,33 @@ update msg model =
                     , Cmd.none
                     )
 
+        RequestReviews ->
+            ( { model | reviewsLoading = True }, requestReviews () )
+
+        ReceivedReviews value ->
+            case Decode.decodeValue (Decode.list reviewDecoder) value of
+                Ok receivedReviews ->
+                    ( { model | reviews = receivedReviews, reviewsLoading = False, error = Nothing }, Cmd.none )
+
+                Err decodeError ->
+                    ( { model | reviewsLoading = False, error = Just { code = "decode-error", message = "レビューリストのデコードに失敗しました: " ++ Decode.errorToString decodeError } }, Cmd.none )
+
 
 reviewDecoder : Decoder Review
 reviewDecoder =
-    Decode.succeed
-        (\id userId userName beverageId beverageName rating title content imageUrl ->
-            { id = id
-            , userId = userId
-            , userName = userName
-            , beverageId = beverageId
-            , beverageName = beverageName
-            , rating = rating
-            , title = title
-            , content = content
-            , imageUrl = imageUrl
-            , likes = 0
-            , createdAt = Time.millisToPosix 0
-            }
-        )
-        |> Pipeline.required "id" Decode.string
-        |> Pipeline.required "userId" Decode.string
-        |> Pipeline.required "userName" Decode.string
-        |> Pipeline.required "beverageId" Decode.string
-        |> Pipeline.required "beverageName" Decode.string
-        |> Pipeline.required "rating" Decode.int
-        |> Pipeline.required "title" Decode.string
-        |> Pipeline.required "content" Decode.string
-        |> Pipeline.required "imageUrl" (Decode.nullable Decode.string)
+    Decode.succeed Review
+        |> Pipeline.required "id" string
+        |> Pipeline.required "userId" string
+        |> Pipeline.required "userName" string
+        |> Pipeline.required "beverageId" string
+        |> Pipeline.required "beverageName" string
+        |> Pipeline.required "rating" int
+        |> Pipeline.required "title" string
+        |> Pipeline.required "content" string
+        |> Pipeline.required "imageUrl" (nullable string)
+        |> Pipeline.required "likes" int
+        -- createdAt は JavaScript 側でミリ秒に変換されている想定
+        |> Pipeline.required "createdAt" (Decode.map Time.millisToPosix int)
 
 
 
@@ -535,7 +509,14 @@ viewHome : Model -> Html Msg
 viewHome model =
     div [ class "home" ]
         [ h1 [] [ text "最新のレビュー" ]
-        , div [ class "review-list" ] (List.map viewReviewCard model.reviews)
+        , if model.reviewsLoading then
+            div [ class "text-center py-8" ] [ text "レビューを読み込み中..." ]
+
+          else if List.isEmpty model.reviews then
+            div [ class "text-center py-8" ] [ text "まだレビューがありません。" ]
+
+          else
+            div [ class "review-list" ] (List.map viewReviewCard model.reviews)
         ]
 
 
@@ -807,6 +788,7 @@ subscriptions _ =
         [ receiveUser ReceivedUser
         , receiveError ReceivedError
         , reviewSaved ReviewSaved
+        , receiveReviews ReceivedReviews -- レビュー受信ポートを購読
         ]
 
 
