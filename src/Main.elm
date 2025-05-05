@@ -264,10 +264,10 @@ update msg model =
                     ( model, Nav.load href )
 
         UrlChanged url ->
-            ( model, Cmd.none )
+            ( { model | error = Nothing, reviewForm = emptyReviewForm }, Cmd.none )
 
         NavigateTo page ->
-            ( { model | page = page }, Cmd.none )
+            ( { model | page = page, error = Nothing, reviewForm = emptyReviewForm }, Cmd.none )
 
         LikeReview reviewId ->
             ( { model
@@ -376,7 +376,7 @@ update msg model =
                         ( { model | formSubmitting = True }, saveReview reviewData )
 
                 Nothing ->
-                    ( { model | error = Just { code = "auth-error", message = "投稿するにはログインしてください" } }, Cmd.none )
+                    ( { model | error = Just { code = "auth-error", message = "投稿するにはログインしてください" }, formSubmitting = False }, Cmd.none )
 
         ReviewSaved value ->
             case Decode.decodeValue (Decode.field "success" Decode.bool) value of
