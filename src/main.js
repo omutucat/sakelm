@@ -1,5 +1,28 @@
 import { Elm } from './Main.elm'
 import './styles.css'
+// Firebase SDK V9 モジュールのインポート
+import { initializeApp } from "firebase/app";
+import {
+    getAuth,
+    GoogleAuthProvider,
+    signInWithPopup,
+    signOut as firebaseSignOut, // signOut が既に定義されているためエイリアスを使用
+    onAuthStateChanged as firebaseOnAuthStateChanged, // onAuthStateChanged が既に定義されているためエイリアスを使用
+} from "firebase/auth";
+import {
+    getFirestore,
+    collection,
+    addDoc,
+    serverTimestamp,
+    Timestamp // Timestamp をインポート
+} from "firebase/firestore";
+import {
+    getStorage,
+    ref as storageRef, // ref が他の変数と衝突する可能性があるためエイリアスを使用
+    uploadBytes,
+    getDownloadURL
+} from "firebase/storage";
+
 
 // Firebase設定
 const firebaseConfig = {
@@ -14,30 +37,32 @@ const firebaseConfig = {
 };
 
 // Firebase の初期化
-firebase.initializeApp(firebaseConfig);
+const firebaseApp = initializeApp(firebaseConfig);
+const auth = getAuth(firebaseApp); // Auth インスタンスを取得
+const db = getFirestore(firebaseApp); // Firestore インスタンスを取得
+const storage = getStorage(firebaseApp); // Storage インスタンスを取得
 
 // Firebase認証関連の関数
 function signInWithGoogle() {
-    const provider = new firebase.auth.GoogleAuthProvider();
-    return firebase.auth().signInWithPopup(provider);
+    const provider = new GoogleAuthProvider();
+    return signInWithPopup(auth, provider); // auth インスタンスを渡す
 }
 
 function signOut() {
-    return firebase.auth().signOut();
+    return firebaseSignOut(auth); // auth インスタンスを渡す
 }
 
 function getCurrentUser() {
-    return firebase.auth().currentUser;
+    return auth.currentUser; // auth インスタンスの currentUser プロパティを使用
 }
 
 function onAuthStateChanged(callback) {
-    return firebase.auth().onAuthStateChanged(callback);
+    return firebaseOnAuthStateChanged(auth, callback); // auth インスタンスを渡す
 }
 
 // レビュー関連の関数
 async function saveReviewToFirebase(reviewData) {
-    const db = firebase.firestore();
-    const storage = firebase.storage();
+    // db と storage はグローバルスコープで初期化済み
 
     try {
         // 現在のユーザー情報を取得
@@ -47,7 +72,7 @@ async function saveReviewToFirebase(reviewData) {
         }
 
         // レビューデータの準備
-        const timestamp = firebase.firestore.FieldValue.serverTimestamp();
+        const timestamp = serverTimestamp(); // Firestore のサーバータイムスタンプ
         const reviewToSave = {
             userId: currentUser.uid,
             userName: currentUser.displayName || 'Anonymous',
@@ -58,24 +83,32 @@ async function saveReviewToFirebase(reviewData) {
             content: reviewData.content,
             imageUrl: null, // 初期値はnull
             likes: 0,
-            createdAt: timestamp
+            createdAt: timestamp // Firestore の Timestamp オブジェクト
         };
 
         // 画像がある場合はアップロード処理
         // ※実装は省略（ハリボテ）
         if (reviewData.imageFile) {
             // 実際はここでStorageにアップロード処理を行う
+            // 例: const imageRef = storageRef(storage, `reviews/${currentUser.uid}/${Date.now()}_${reviewData.imageFile.name}`);
+            // await uploadBytes(imageRef, reviewData.imageFile);
+            // reviewToSave.imageUrl = await getDownloadURL(imageRef);
             reviewToSave.imageUrl = `https://via.placeholder.com/300/300?text=${encodeURIComponent(reviewData.title)}`;
         }
 
         // Firestoreにレビューを保存
-        const reviewRef = await db.collection('reviews').add(reviewToSave);
+        const reviewsCollection = collection(db, 'reviews'); // コレクション参照を取得
+        const reviewRef = await addDoc(reviewsCollection, reviewToSave); // ドキュメントを追加
 
         // 保存したデータにIDを付けて返す
+        // createdAt はサーバーで設定されるため、クライアント側で Date.now() を使う代わりに null または推定値を返す
+        // Elm側で Timestamp を扱えない場合は、ここでミリ秒に変換する必要があるかもしれない
         return {
             id: reviewRef.id,
             ...reviewToSave,
-            createdAt: Date.now() // タイムスタンプをミリ秒に変換
+            // Firestore の Timestamp はオブジェクト。Elm に渡す前に変換が必要な場合がある
+            // 例: createdAt: Date.now() // または null のままにする
+            createdAt: Date.now() // ハリボテとして現在の時刻を設定
         };
 
     } catch (error) {
