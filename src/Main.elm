@@ -43,6 +43,22 @@ port receiveReviews : (Decode.Value -> msg) -> Sub msg
 
 
 
+-- 新しいポートを追加
+
+
+port saveBeverage : Encode.Value -> Cmd msg
+
+
+port beverageSaved : (Decode.Value -> msg) -> Sub msg
+
+
+port requestBeverages : () -> Cmd msg
+
+
+port receiveBeverages : (Decode.Value -> msg) -> Sub msg
+
+
+
 -- モデル定義
 
 
@@ -107,6 +123,10 @@ type alias Model =
     , formSuccess : Bool
     , beverages : List Beverage -- お酒のリストを追加
     , reviewsLoading : Bool -- レビュー読み込み中フラグを追加
+    , beverageForm : BeverageForm -- お酒追加フォーム
+    , beverageFormSubmitting : Bool
+    , beverageFormSuccess : Bool
+    , beveragesLoading : Bool -- お酒の読み込み中フラグ
     }
 
 
@@ -120,6 +140,25 @@ type alias Beverage =
     }
 
 
+type alias BeverageForm =
+    { name : String
+    , category : String
+    , alcoholPercentage : String -- 入力フォームではStringとして扱う
+    , manufacturer : String
+    , description : String
+    }
+
+
+emptyBeverageForm : BeverageForm
+emptyBeverageForm =
+    { name = ""
+    , category = ""
+    , alcoholPercentage = ""
+    , manufacturer = ""
+    , description = ""
+    }
+
+
 type Page
     = Home
     | Login
@@ -128,6 +167,7 @@ type Page
     | BeverageDetail String -- 追加: お酒IDを保持
     | ReviewDetail String
     | NewReview
+    | NewBeverage -- 新しいお酒追加ページ
     | NotFound
 
 
@@ -155,11 +195,17 @@ init flags _ key =
       , reviewForm = emptyReviewForm
       , formSubmitting = False
       , formSuccess = False
-      , beverages = sampleBeverages
+      , beverages = []
       , reviewsLoading = True -- 初期状態は読み込み中
+      , beverageForm = emptyBeverageForm
+      , beverageFormSubmitting = False
+      , beverageFormSuccess = False
+      , beveragesLoading = True
       }
-    , requestReviews ()
-      -- 初期化時にレビュー取得をリクエスト
+    , Cmd.batch
+        [ requestReviews () -- レビュー取得
+        , requestBeverages () -- お酒のリスト取得
+        ]
     )
 
 
@@ -244,6 +290,12 @@ type Msg
     | ReviewSaved Decode.Value
     | RequestReviews -- レビュー取得リクエストメッセージ
     | ReceivedReviews Decode.Value -- レビュー受信メッセージ
+      -- 新しいお酒関連のメッセージ
+    | UpdateBeverageForm BeverageFormField String
+    | SubmitBeverageForm
+    | BeverageSaved Decode.Value
+    | RequestBeverages
+    | ReceivedBeverages Decode.Value
 
 
 type ReviewFormField
@@ -251,6 +303,14 @@ type ReviewFormField
     | TitleField
     | ContentField
     | ImageField
+
+
+type BeverageFormField
+    = BeverageNameField
+    | BeverageCategoryField
+    | BeverageAlcoholField
+    | BeverageManufacturerField
+    | BeverageDescriptionField
 
 
 
@@ -267,6 +327,7 @@ pageParser =
         , Parser.map BeverageDetail (Parser.s "beverages" </> Parser.string) -- /beverages/{id}
         , Parser.map ReviewDetail (Parser.s "reviews" </> Parser.string) -- /reviews/{id}
         , Parser.map NewReview (Parser.s "new-review")
+        , Parser.map NewBeverage (Parser.s "new-beverage") -- /new-beverage
         ]
 
 
@@ -318,6 +379,9 @@ update msg model =
 
                         NewReview ->
                             "/new-review"
+
+                        NewBeverage ->
+                            "/new-beverage"
 
                         NotFound ->
                             "/404"
@@ -491,6 +555,121 @@ update msg model =
                 Err decodeError ->
                     ( { model | reviewsLoading = False, error = Just { code = "decode-error", message = "レビューリストのデコードに失敗しました: " ++ Decode.errorToString decodeError } }, Cmd.none )
 
+        -- お酒のフォーム更新
+        UpdateBeverageForm field value ->
+            let
+                form =
+                    model.beverageForm
+
+                updatedForm =
+                    case field of
+                        BeverageNameField ->
+                            { form | name = value }
+
+                        BeverageCategoryField ->
+                            { form | category = value }
+
+                        BeverageAlcoholField ->
+                            { form | alcoholPercentage = value }
+
+                        BeverageManufacturerField ->
+                            { form | manufacturer = value }
+
+                        BeverageDescriptionField ->
+                            { form | description = value }
+            in
+            ( { model | beverageForm = updatedForm }, Cmd.none )
+
+        -- お酒の登録送信
+        SubmitBeverageForm ->
+            case model.user of
+                Just user ->
+                    if String.isEmpty model.beverageForm.name || String.isEmpty model.beverageForm.category then
+                        ( { model | error = Just { code = "validation-error", message = "お酒の名前とカテゴリーは必須です" } }, Cmd.none )
+
+                    else
+                        let
+                            -- 度数をStringからMaybe Float に変換
+                            alcoholPercentage =
+                                case String.toFloat model.beverageForm.alcoholPercentage of
+                                    Just value ->
+                                        Encode.float value
+
+                                    Nothing ->
+                                        Encode.null
+
+                            beverageData =
+                                Encode.object
+                                    [ ( "name", Encode.string model.beverageForm.name )
+                                    , ( "category", Encode.string model.beverageForm.category )
+                                    , ( "alcoholPercentage", alcoholPercentage )
+                                    , ( "manufacturer", Encode.string model.beverageForm.manufacturer )
+                                    , ( "description", Encode.string model.beverageForm.description )
+                                    , ( "userId", Encode.string user.uid ) -- 作成者のIDも保存
+                                    ]
+                        in
+                        ( { model | beverageFormSubmitting = True }, saveBeverage beverageData )
+
+                Nothing ->
+                    ( { model | error = Just { code = "auth-error", message = "お酒を登録するにはログインしてください" }, beverageFormSubmitting = False }, Cmd.none )
+
+        -- お酒の保存結果処理
+        BeverageSaved value ->
+            case Decode.decodeValue (Decode.field "success" Decode.bool) value of
+                Ok success ->
+                    if success then
+                        case Decode.decodeValue (Decode.field "beverage" beverageDecoder) value of
+                            Ok newBeverage ->
+                                -- 新しいお酒をリストに追加
+                                ( { model
+                                    | beverageForm = emptyBeverageForm
+                                    , beverageFormSubmitting = False
+                                    , beverageFormSuccess = True
+                                    , beverages = newBeverage :: model.beverages
+                                    , page = BeverageList
+                                  }
+                                , Cmd.none
+                                )
+
+                            Err decodeError ->
+                                ( { model
+                                    | beverageFormSubmitting = False
+                                    , beverageFormSuccess = True
+                                    , page = BeverageList
+                                    , error = Just { code = "decode-error", message = "受信したお酒データの形式が正しくありません: " ++ Decode.errorToString decodeError }
+                                  }
+                                , Cmd.none
+                                )
+
+                    else
+                        ( { model
+                            | beverageFormSubmitting = False
+                            , error = Just { code = "save-error", message = "お酒の保存に失敗しました" }
+                          }
+                        , Cmd.none
+                        )
+
+                Err error ->
+                    ( { model
+                        | beverageFormSubmitting = False
+                        , error = Just { code = "decode-error", message = Decode.errorToString error }
+                      }
+                    , Cmd.none
+                    )
+
+        -- お酒リスト取得リクエスト
+        RequestBeverages ->
+            ( { model | beveragesLoading = True }, requestBeverages () )
+
+        -- お酒リスト受信処理
+        ReceivedBeverages value ->
+            case Decode.decodeValue (Decode.list beverageDecoder) value of
+                Ok receivedBeverages ->
+                    ( { model | beverages = receivedBeverages, beveragesLoading = False, error = Nothing }, Cmd.none )
+
+                Err decodeError ->
+                    ( { model | beveragesLoading = False, error = Just { code = "decode-error", message = "お酒リストのデコードに失敗しました: " ++ Decode.errorToString decodeError } }, Cmd.none )
+
 
 reviewDecoder : Decoder Review
 reviewDecoder =
@@ -507,6 +686,21 @@ reviewDecoder =
         |> Pipeline.required "likes" Decode.int
         -- createdAt は JavaScript 側でミリ秒に変換されている想定
         |> Pipeline.required "createdAt" (Decode.map Time.millisToPosix Decode.int)
+
+
+
+-- お酒のデコーダー
+
+
+beverageDecoder : Decoder Beverage
+beverageDecoder =
+    Decode.succeed Beverage
+        |> Pipeline.required "id" Decode.string
+        |> Pipeline.required "name" Decode.string
+        |> Pipeline.required "category" Decode.string
+        |> Pipeline.optional "alcoholPercentage" (nullable Decode.float) Nothing
+        |> Pipeline.optional "manufacturer" (nullable Decode.string) Nothing
+        |> Pipeline.optional "description" (nullable Decode.string) Nothing
 
 
 
@@ -549,6 +743,9 @@ view model =
                 NewReview ->
                     viewNewReview model
 
+                NewBeverage ->
+                    viewNewBeverage model
+
                 NotFound ->
                     viewNotFound
             ]
@@ -568,6 +765,12 @@ viewHeader model =
                 , case model.user of
                     Just _ ->
                         li [ class "nav-item", onClick (NavigateTo NewReview) ] [ text "レビューを投稿" ]
+
+                    Nothing ->
+                        text ""
+                , case model.user of
+                    Just _ ->
+                        li [ class "nav-item", onClick (NavigateTo NewBeverage) ] [ text "お酒を登録" ]
 
                     Nothing ->
                         text ""
@@ -698,20 +901,39 @@ viewRegister =
 viewBeverageList : Model -> Html Msg
 viewBeverageList model =
     div [ class "beverage-list" ]
-        [ h1 [] [ text "お酒一覧" ]
-        , div [ class "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5" ]
-            (List.map
-                (\beverage ->
-                    div
-                        [ class "bg-white rounded-lg shadow-md p-5 cursor-pointer hover:translate-y-[-5px] hover:shadow-lg transition-transform"
-                        , onClick (NavigateTo (BeverageDetail beverage.id)) -- クリックイベントを追加
+        [ div [ class "flex justify-between items-center mb-4" ]
+            [ h1 [] [ text "お酒一覧" ]
+            , case model.user of
+                Just _ ->
+                    button
+                        [ class "button-primary"
+                        , onClick (NavigateTo NewBeverage)
                         ]
-                        [ h3 [] [ text beverage.name ]
-                        , p [] [ text ("カテゴリー: " ++ beverage.category) ]
-                        ]
+                        [ text "お酒を登録" ]
+
+                Nothing ->
+                    text ""
+            ]
+        , if model.beveragesLoading then
+            div [ class "text-center py-8" ] [ text "お酒リスト読み込み中..." ]
+
+          else if List.isEmpty model.beverages then
+            div [ class "text-center py-8" ] [ text "登録されているお酒がありません。" ]
+
+          else
+            div [ class "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5" ]
+                (List.map
+                    (\beverage ->
+                        div
+                            [ class "bg-white rounded-lg shadow-md p-5 cursor-pointer hover:translate-y-[-5px] hover:shadow-lg transition-transform"
+                            , onClick (NavigateTo (BeverageDetail beverage.id))
+                            ]
+                            [ h3 [] [ text beverage.name ]
+                            , p [] [ text ("カテゴリー: " ++ beverage.category) ]
+                            ]
+                    )
+                    model.beverages
                 )
-                model.beverages
-            )
         ]
 
 
@@ -934,6 +1156,119 @@ viewNewReview model =
         ]
 
 
+viewNewBeverage : Model -> Html Msg
+viewNewBeverage model =
+    div [ class "new-beverage bg-white rounded-lg shadow-md p-8 mt-5" ]
+        [ h1 [] [ text "新しいお酒を登録" ]
+        , case model.user of
+            Nothing ->
+                div []
+                    [ p [] [ text "お酒を登録するにはログインが必要です。" ]
+                    , button [ class "button-primary", onClick (NavigateTo Login) ] [ text "ログイン" ]
+                    ]
+
+            Just _ ->
+                if model.beverageFormSubmitting then
+                    div [ class "text-center py-8" ]
+                        [ p [] [ text "送信中..." ]
+                        ]
+
+                else if model.beverageFormSuccess then
+                    div [ class "text-center py-8" ]
+                        [ p [] [ text "お酒が登録されました！" ]
+                        , button [ class "button-primary", onClick (NavigateTo BeverageList) ] [ text "お酒一覧に戻る" ]
+                        ]
+
+                else
+                    Html.form [ class "beverage-form", onSubmit SubmitBeverageForm ]
+                        [ div [ class "form-group" ]
+                            [ label [ for "name" ] [ text "お酒の名前" ]
+                            , input
+                                [ id "name"
+                                , class "form-input"
+                                , type_ "text"
+                                , placeholder "お酒の名前を入力"
+                                , value model.beverageForm.name
+                                , onInput (UpdateBeverageForm BeverageNameField)
+                                , required True
+                                ]
+                                []
+                            ]
+                        , div [ class "form-group" ]
+                            [ label [ for "category" ] [ text "カテゴリー" ]
+                            , select
+                                [ id "category"
+                                , class "form-select"
+                                , onInput (UpdateBeverageForm BeverageCategoryField)
+                                , required True
+                                ]
+                                [ option [ value "" ] [ text "-- 選択してください --" ]
+                                , option [ value "日本酒" ] [ text "日本酒" ]
+                                , option [ value "ビール" ] [ text "ビール" ]
+                                , option [ value "ワイン" ] [ text "ワイン" ]
+                                , option [ value "ウイスキー" ] [ text "ウイスキー" ]
+                                , option [ value "焼酎" ] [ text "焼酎" ]
+                                , option [ value "ジン" ] [ text "ジン" ]
+                                , option [ value "ブランデー" ] [ text "ブランデー" ]
+                                , option [ value "その他" ] [ text "その他" ]
+                                ]
+                            ]
+                        , div [ class "form-group" ]
+                            [ label [ for "alcohol" ] [ text "度数 (%)" ]
+                            , input
+                                [ id "alcohol"
+                                , class "form-input"
+                                , type_ "number"
+                                , Html.Attributes.min "0"
+                                , Html.Attributes.max "100"
+                                , Html.Attributes.step "0.1"
+                                , placeholder "例: 15.0"
+                                , value model.beverageForm.alcoholPercentage
+                                , onInput (UpdateBeverageForm BeverageAlcoholField)
+                                ]
+                                []
+                            ]
+                        , div [ class "form-group" ]
+                            [ label [ for "manufacturer" ] [ text "製造元" ]
+                            , input
+                                [ id "manufacturer"
+                                , class "form-input"
+                                , type_ "text"
+                                , placeholder "製造元"
+                                , value model.beverageForm.manufacturer
+                                , onInput (UpdateBeverageForm BeverageManufacturerField)
+                                ]
+                                []
+                            ]
+                        , div [ class "form-group" ]
+                            [ label [ for "description" ] [ text "説明" ]
+                            , textarea
+                                [ id "description"
+                                , class "form-textarea"
+                                , placeholder "お酒の説明文..."
+                                , rows 5
+                                , value model.beverageForm.description
+                                , onInput (UpdateBeverageForm BeverageDescriptionField)
+                                ]
+                                []
+                            ]
+                        , div [ class "form-actions" ]
+                            [ button
+                                [ class "button-primary"
+                                , type_ "submit"
+                                ]
+                                [ text "登録する" ]
+                            , button
+                                [ class "button-secondary ml-4"
+                                , type_ "button"
+                                , onClick (NavigateTo BeverageList)
+                                ]
+                                [ text "キャンセル" ]
+                            ]
+                        ]
+        ]
+
+
 viewNotFound : Html Msg
 viewNotFound =
     div [ class "not-found" ]
@@ -960,6 +1295,8 @@ subscriptions _ =
         , receiveError ReceivedError
         , reviewSaved ReviewSaved
         , receiveReviews ReceivedReviews -- レビュー受信ポートを購読
+        , beverageSaved BeverageSaved -- お酒保存結果の購読
+        , receiveBeverages ReceivedBeverages -- お酒リスト受信の購読
         ]
 
 

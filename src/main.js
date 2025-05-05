@@ -26,7 +26,6 @@ import {
     getDownloadURL
 } from "firebase/storage";
 
-
 // Firebase設定
 const firebaseConfig = {
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -167,6 +166,84 @@ async function likeReview(reviewId) {
     return { success: true };
 }
 
+// お酒関連の関数
+async function saveBeverageToFirebase(beverageData) {
+    try {
+        // 現在のユーザー情報を取得
+        const currentUser = getCurrentUser();
+        if (!currentUser) {
+            throw new Error('ユーザーがログインしていません');
+        }
+
+        // お酒データの準備
+        const timestamp = serverTimestamp();
+        const beverageToSave = {
+            name: beverageData.name,
+            category: beverageData.category,
+            userId: currentUser.uid, // 登録者のID
+            createdAt: timestamp,
+            updatedAt: timestamp
+        };
+
+        // オプションフィールドの処理
+        if (beverageData.alcoholPercentage) {
+            beverageToSave.alcoholPercentage = parseFloat(beverageData.alcoholPercentage);
+        }
+
+        if (beverageData.manufacturer) {
+            beverageToSave.manufacturer = beverageData.manufacturer;
+        }
+
+        if (beverageData.description) {
+            beverageToSave.description = beverageData.description;
+        }
+
+        // Firestoreにお酒を保存
+        const beveragesCollection = collection(db, 'beverages');
+        const beverageRef = await addDoc(beveragesCollection, beverageToSave);
+
+        // 保存したデータにIDを付けて返す
+        const savedData = {
+            id: beverageRef.id,
+            ...beverageToSave,
+            createdAt: Date.now()
+        };
+
+        return savedData;
+
+    } catch (error) {
+        console.error('お酒保存エラー:', error);
+        throw error;
+    }
+}
+
+// Firestoreからお酒を取得する関数
+async function fetchBeveragesFromFirebase() {
+    try {
+        const beveragesCollection = collection(db, 'beverages');
+        // createdAt フィールドで降順にソートするクエリを作成
+        const q = query(beveragesCollection, orderBy("createdAt", "desc"));
+        const querySnapshot = await getDocs(q);
+        const beverages = [];
+        querySnapshot.forEach((doc) => {
+            const data = doc.data();
+
+            beverages.push({
+                id: doc.id,
+                name: data.name,
+                category: data.category,
+                alcoholPercentage: data.alcoholPercentage || null,
+                manufacturer: data.manufacturer || null,
+                description: data.description || null
+            });
+        });
+        return beverages;
+    } catch (error) {
+        console.error("お酒取得エラー:", error);
+        throw error;
+    }
+}
+
 // アプリ初期化
 const app = Elm.Main.init({
     node: document.querySelector('main'),
@@ -255,6 +332,51 @@ app.ports.requestReviews.subscribe(() => {
             });
             // 空のリストを送るか、エラー状態を維持するかはElm側の設計による
             app.ports.receiveReviews.send([]);
+        });
+});
+
+// お酒の保存リクエスト処理
+app.ports.saveBeverage.subscribe((beverageData) => {
+    const currentUser = getCurrentUser();
+
+    if (!currentUser) {
+        app.ports.receiveError.send({
+            code: "auth-error",
+            message: "お酒を登録するにはログインしてください"
+        });
+        return;
+    }
+
+    saveBeverageToFirebase(beverageData)
+        .then((newBeverage) => {
+            app.ports.beverageSaved.send({
+                success: true,
+                beverage: newBeverage
+            });
+        })
+        .catch(error => {
+            app.ports.receiveError.send({
+                code: error.code || "unknown-error",
+                message: error.message || "お酒の保存中にエラーが発生しました"
+            });
+            app.ports.beverageSaved.send({
+                success: false
+            });
+        });
+});
+
+// お酒取得リクエストの処理
+app.ports.requestBeverages.subscribe(() => {
+    fetchBeveragesFromFirebase()
+        .then(beverages => {
+            app.ports.receiveBeverages.send(beverages);
+        })
+        .catch(error => {
+            app.ports.receiveError.send({
+                code: "fetch-beverages-error",
+                message: "お酒の取得中にエラーが発生しました: " + error.message
+            });
+            app.ports.receiveBeverages.send([]);
         });
 });
 

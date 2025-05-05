@@ -15,6 +15,20 @@ service cloud.firestore {
                                request.auth.uid == resource.data.userId;
     }
     
+    // お酒のセキュリティルール
+    match /beverages/{beverageId} {
+      // 認証済みユーザーは読み取り可能
+      allow read: if request.auth != null;
+      
+      // 認証済みユーザーは新しいお酒を登録可能
+      allow create: if request.auth != null && 
+                      request.resource.data.userId == request.auth.uid;
+      
+      // 登録者のみ更新/削除可能
+      allow update, delete: if request.auth != null && 
+                               request.auth.uid == resource.data.userId;
+    }
+    
     // その他のルール
     match /{document=**} {
       allow read, write: if request.time < timestamp.date(2025, 6, 3);
