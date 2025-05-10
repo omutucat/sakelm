@@ -231,46 +231,6 @@ errorDecoder =
         (Decode.field "message" Decode.string)
 
 
-sampleBeverages : List Beverage
-sampleBeverages =
-    [ { id = "bev1"
-      , name = "山崎12年"
-      , category = "ウイスキー"
-      , alcoholPercentage = Just 43.0
-      , manufacturer = Just "サントリー"
-      , description = Just "日本のシングルモルトウイスキーの代表格。繊細で複雑な味わい。"
-      }
-    , { id = "bev2"
-      , name = "獺祭 純米大吟醸"
-      , category = "日本酒"
-      , alcoholPercentage = Just 16.0
-      , manufacturer = Just "旭酒造"
-      , description = Just "華やかな香りと綺麗な味わいが特徴の純米大吟醸酒。"
-      }
-    , { id = "bev3"
-      , name = "よなよなエール"
-      , category = "ビール"
-      , alcoholPercentage = Just 5.5
-      , manufacturer = Just "ヤッホーブルーイング"
-      , description = Just "アメリカンペールエールスタイルのクラフトビール。柑橘系の香りが豊か。"
-      }
-    , { id = "bev4"
-      , name = "久保田 千寿"
-      , category = "日本酒"
-      , alcoholPercentage = Just 15.0
-      , manufacturer = Just "朝日酒造"
-      , description = Just "食事と楽しむ吟醸酒。穏やかな香りとスッキリとした味わい。"
-      }
-    , { id = "bev5"
-      , name = "ヘネシーXO"
-      , category = "ブランデー"
-      , alcoholPercentage = Just 40.0
-      , manufacturer = Just "ヘネシー"
-      , description = Just "コニャックの最高峰の一つ。豊かでパワフルな味わい。"
-      }
-    ]
-
-
 
 -- メッセージ定義
 
