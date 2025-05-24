@@ -112,10 +112,6 @@ async function saveReviewToFirebase(reviewData) {
             // createdAt: Date.now() // または null のままにする
             createdAt: Date.now() // ハリボテとして現在の時刻を設定（保存直後なのでこれでOK）
         };
-        // imageUrl が null の場合、キー自体を削除するか、明示的に null を送る
-        if (savedData.imageUrl === null) {
-            delete savedData.imageUrl; // または savedData.imageUrl = null;
-        }
         return savedData;
 
     } catch (error) {
