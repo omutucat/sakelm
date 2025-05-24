@@ -15,7 +15,6 @@ import User exposing (Error, User)
 
 
 
--- 追加
 -- ポート定義
 
 
@@ -23,9 +22,6 @@ port requestLogin : () -> Cmd msg
 
 
 port requestLogout : () -> Cmd msg
-
-
-port receiveUser : (Decode.Value -> msg) -> Sub msg
 
 
 port receiveError : (Decode.Value -> msg) -> Sub msg
@@ -41,10 +37,6 @@ port requestReviews : () -> Cmd msg
 
 
 port receiveReviews : (Decode.Value -> msg) -> Sub msg
-
-
-
--- 新しいポートを追加
 
 
 port saveBeverage : Encode.Value -> Cmd msg
