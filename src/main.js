@@ -91,7 +91,7 @@ async function saveReviewToFirebase(reviewData) {
         // 画像がある場合はアップロード処理
         // ※実装は省略（ハリボテ）
         if (reviewData.imageFile) {
-            // 実際はここでStorageにアップロード処理を行う
+            // TODO: 実際はここでStorageにアップロード処理を行う
             // 例: const imageRef = storageRef(storage, `reviews/${currentUser.uid}/${Date.now()}_${reviewData.imageFile.name}`);
             // await uploadBytes(imageRef, reviewData.imageFile);
             // reviewToSave.imageUrl = await getDownloadURL(imageRef);
