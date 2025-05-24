@@ -11,6 +11,7 @@ import Json.Encode as Encode
 import Time
 import Url
 import Url.Parser as Parser exposing ((</>), Parser, oneOf)
+import User exposing (Error, User)
 
 
 
@@ -212,23 +213,7 @@ init flags _ key =
 flagsDecoder : Decoder Flags
 flagsDecoder =
     Decode.map Flags
-        (Decode.field "user" (Decode.nullable userDecoder))
-
-
-userDecoder : Decoder User
-userDecoder =
-    Decode.map4 User
-        (Decode.field "uid" Decode.string)
-        (Decode.field "displayName" Decode.string)
-        (Decode.field "email" Decode.string)
-        (Decode.field "photoURL" (Decode.nullable Decode.string))
-
-
-errorDecoder : Decoder Error
-errorDecoder =
-    Decode.map2 Error
-        (Decode.field "code" Decode.string)
-        (Decode.field "message" Decode.string)
+        (Decode.field "user" (Decode.nullable User.userDecoder))
 
 
 
@@ -379,13 +364,13 @@ update msg model =
             )
 
         LogIn ->
-            ( model, requestLogin () )
+            ( model, User.requestLogin () )
 
         LogOut ->
-            ( model, requestLogout () )
+            ( model, User.requestLogout () )
 
         ReceivedUser value ->
-            case Decode.decodeValue (Decode.nullable userDecoder) value of
+            case Decode.decodeValue (Decode.nullable User.userDecoder) value of
                 Ok maybeUser ->
                     -- ユーザー状態が変わったらレビューを再取得
                     ( { model | user = maybeUser, error = Nothing, reviewsLoading = True }, requestReviews () )
@@ -394,7 +379,7 @@ update msg model =
                     ( { model | error = Just { code = "decode-error", message = Decode.errorToString error } }, Cmd.none )
 
         ReceivedError value ->
-            case Decode.decodeValue errorDecoder value of
+            case Decode.decodeValue User.errorDecoder value of
                 Ok error ->
                     ( { model | error = Just error }, Cmd.none )
 
@@ -1261,8 +1246,8 @@ viewFooter =
 subscriptions : Model -> Sub Msg
 subscriptions _ =
     Sub.batch
-        [ receiveUser ReceivedUser
-        , receiveError ReceivedError
+        [ User.receiveUser ReceivedUser
+        , User.receiveError ReceivedError
         , reviewSaved ReviewSaved
         , receiveReviews ReceivedReviews -- レビュー受信ポートを購読
         , beverageSaved BeverageSaved -- お酒保存結果の購読
