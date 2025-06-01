@@ -3,8 +3,12 @@ module Beverage exposing
     , BeverageForm
     , beverageDecoder
     , emptyBeverageForm
+    , viewBeverageCard
     )
 
+import Html exposing (..)
+import Html.Attributes exposing (..)
+import Html.Events exposing (onClick)
 import Json.Decode as Decode exposing (Decoder, nullable)
 import Json.Decode.Pipeline as Pipeline
 
@@ -47,3 +51,14 @@ beverageDecoder =
         |> Pipeline.optional "alcoholPercentage" (nullable Decode.float) Nothing
         |> Pipeline.optional "manufacturer" (nullable Decode.string) Nothing
         |> Pipeline.optional "description" (nullable Decode.string) Nothing
+
+
+viewBeverageCard : (String -> msg) -> Beverage -> Html msg
+viewBeverageCard toBeverageDetail beverage =
+    div
+        [ class "bg-white rounded-lg shadow-md p-5 cursor-pointer hover:translate-y-[-5px] hover:shadow-lg transition-transform"
+        , onClick (toBeverageDetail beverage.id)
+        ]
+        [ h3 [] [ text beverage.name ]
+        , p [] [ text ("カテゴリー: " ++ beverage.category) ]
+        ]

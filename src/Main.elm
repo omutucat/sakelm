@@ -1,6 +1,6 @@
 port module Main exposing (main)
 
-import Beverage
+import Beverage exposing (viewBeverageCard)
 import Browser
 import Browser.Navigation as Nav
 import Html exposing (..)
@@ -711,18 +711,7 @@ viewBeverageList model =
 
           else
             div [ class "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5" ]
-                (List.map
-                    (\beverage ->
-                        div
-                            [ class "bg-white rounded-lg shadow-md p-5 cursor-pointer hover:translate-y-[-5px] hover:shadow-lg transition-transform"
-                            , onClick (NavigateTo (BeverageDetail beverage.id))
-                            ]
-                            [ h3 [] [ text beverage.name ]
-                            , p [] [ text ("カテゴリー: " ++ beverage.category) ]
-                            ]
-                    )
-                    model.beverages
-                )
+                (List.map (viewBeverageCard (\beverageId -> NavigateTo (BeverageDetail beverageId))) model.beverages)
         ]
 
 
