@@ -6,10 +6,9 @@ import Browser.Navigation as Nav
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit)
-import Json.Decode as Decode exposing (Decoder, field, nullable)
-import Json.Decode.Pipeline as Pipeline
+import Json.Decode as Decode exposing (Decoder, field)
 import Json.Encode as Encode
-import Time
+import Review exposing (Review, ReviewForm, emptyReviewForm, reviewDecoder)
 import Url
 import Url.Parser as Parser exposing ((</>), Parser, oneOf)
 import User exposing (Error, User)
@@ -70,49 +69,13 @@ type alias Error =
     }
 
 
-type alias Review =
-    { id : String
-    , userId : String
-    , userName : String
-    , beverageId : String
-    , beverageName : String
-    , rating : Int
-    , title : String
-    , content : String
-    , imageUrl : Maybe String
-    , likes : Int
-    , createdAt : Time.Posix
-    }
-
-
-type alias ReviewForm =
-    { beverageId : String
-    , beverageName : String
-    , rating : Int
-    , title : String
-    , content : String
-    , imageFile : Maybe String -- 実際は画像ファイル参照だがハリボテ
-    }
-
-
-emptyReviewForm : ReviewForm
-emptyReviewForm =
-    { beverageId = ""
-    , beverageName = ""
-    , rating = 3
-    , title = ""
-    , content = ""
-    , imageFile = Nothing
-    }
-
-
 type alias Model =
     { key : Nav.Key
     , page : Page
-    , reviews : List Review -- Firestoreから取得したレビューを格納
+    , reviews : List Review.Review -- Firestoreから取得したレビューを格納
     , user : Maybe User
     , error : Maybe Error
-    , reviewForm : ReviewForm
+    , reviewForm : Review.ReviewForm
     , formSubmitting : Bool
     , formSuccess : Bool
     , beverages : List Beverage.Beverage -- お酒のリストを追加
@@ -157,7 +120,7 @@ init flags _ key =
       , reviews = [] -- 初期状態は空リスト
       , user = decodedFlags.user
       , error = Nothing
-      , reviewForm = emptyReviewForm
+      , reviewForm = Review.emptyReviewForm
       , formSubmitting = False
       , formSuccess = False
       , beverages = []
@@ -265,7 +228,7 @@ update msg model =
                 resetFormState page model_ =
                     case page of
                         NewReview ->
-                            { model_ | formSuccess = False, reviewForm = emptyReviewForm }
+                            { model_ | formSuccess = False, reviewForm = Review.emptyReviewForm }
 
                         NewBeverage ->
                             { model_ | beverageFormSuccess = False, beverageForm = Beverage.emptyBeverageForm }
@@ -425,11 +388,11 @@ update msg model =
             case Decode.decodeValue (Decode.field "success" Decode.bool) value of
                 Ok success ->
                     if success then
-                        case Decode.decodeValue (Decode.field "review" reviewDecoder) value of
+                        case Decode.decodeValue (Decode.field "review" Review.reviewDecoder) value of
                             Ok newReview ->
                                 -- 新しいレビューをリストの先頭に追加
                                 ( { model
-                                    | reviewForm = emptyReviewForm
+                                    | reviewForm = Review.emptyReviewForm
                                     , formSubmitting = False
                                     , formSuccess = True
                                     , reviews = newReview :: model.reviews -- Firestoreから再取得せず、ローカルで追加
@@ -469,7 +432,7 @@ update msg model =
             ( { model | reviewsLoading = True }, requestReviews () )
 
         ReceivedReviews value ->
-            case Decode.decodeValue (Decode.list reviewDecoder) value of
+            case Decode.decodeValue (Decode.list Review.reviewDecoder) value of
                 Ok receivedReviews ->
                     ( { model | reviews = receivedReviews, reviewsLoading = False, error = Nothing }, Cmd.none )
 
@@ -590,26 +553,7 @@ update msg model =
                     ( { model | beveragesLoading = False, error = Just { code = "decode-error", message = "お酒リストのデコードに失敗しました: " ++ Decode.errorToString decodeError } }, Cmd.none )
 
 
-reviewDecoder : Decoder Review
-reviewDecoder =
-    Decode.succeed Review
-        |> Pipeline.required "id" Decode.string
-        |> Pipeline.required "userId" Decode.string
-        |> Pipeline.required "userName" Decode.string
-        |> Pipeline.required "beverageId" Decode.string
-        |> Pipeline.required "beverageName" Decode.string
-        |> Pipeline.required "rating" Decode.int
-        |> Pipeline.required "title" Decode.string
-        |> Pipeline.required "content" Decode.string
-        |> Pipeline.required "imageUrl" (nullable Decode.string)
-        |> Pipeline.required "likes" Decode.int
-        -- createdAt は JavaScript 側でミリ秒に変換されている想定
-        |> Pipeline.required "createdAt" (Decode.map Time.millisToPosix Decode.int)
 
-
-
--- お酒のデコーダー
--- beverageDecoder は Beverage.elm に移動しました
 -- ビュー関数
 
 
@@ -717,7 +661,7 @@ viewHome model =
         ]
 
 
-viewReviewCard : Review -> Html Msg
+viewReviewCard : Review.Review -> Html Msg
 viewReviewCard review =
     div [ class "review-card", onClick (NavigateTo (ReviewDetail review.id)) ]
         [ div [ class "review-header" ]
