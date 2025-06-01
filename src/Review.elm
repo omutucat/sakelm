@@ -10,8 +10,8 @@ module Review exposing
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (onClick, onInput, onSubmit)
-import Json.Decode as Decode exposing (Decoder, field, nullable)
+import Html.Events exposing (onClick)
+import Json.Decode as Decode exposing (Decoder, nullable)
 import Json.Decode.Pipeline as Pipeline
 import Time
 
