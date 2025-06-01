@@ -1,5 +1,6 @@
 port module Main exposing (main)
 
+import Beverage exposing (Beverage, BeverageForm, beverageDecoder, emptyBeverageForm)
 import Browser
 import Browser.Navigation as Nav
 import Html exposing (..)
@@ -114,41 +115,12 @@ type alias Model =
     , reviewForm : ReviewForm
     , formSubmitting : Bool
     , formSuccess : Bool
-    , beverages : List Beverage -- お酒のリストを追加
+    , beverages : List Beverage.Beverage -- お酒のリストを追加
     , reviewsLoading : Bool -- レビュー読み込み中フラグを追加
-    , beverageForm : BeverageForm -- お酒追加フォーム
+    , beverageForm : Beverage.BeverageForm -- お酒追加フォーム
     , beverageFormSubmitting : Bool
     , beverageFormSuccess : Bool
     , beveragesLoading : Bool -- お酒の読み込み中フラグ
-    }
-
-
-type alias Beverage =
-    { id : String
-    , name : String
-    , category : String
-    , alcoholPercentage : Maybe Float -- 度数を追加 (Maybe Float)
-    , manufacturer : Maybe String -- 製造元を追加 (Maybe String)
-    , description : Maybe String -- 説明を追加 (Maybe String)
-    }
-
-
-type alias BeverageForm =
-    { name : String
-    , category : String
-    , alcoholPercentage : String -- 入力フォームではStringとして扱う
-    , manufacturer : String
-    , description : String
-    }
-
-
-emptyBeverageForm : BeverageForm
-emptyBeverageForm =
-    { name = ""
-    , category = ""
-    , alcoholPercentage = ""
-    , manufacturer = ""
-    , description = ""
     }
 
 
@@ -190,7 +162,7 @@ init flags _ key =
       , formSuccess = False
       , beverages = []
       , reviewsLoading = True -- 初期状態は読み込み中
-      , beverageForm = emptyBeverageForm
+      , beverageForm = Beverage.emptyBeverageForm
       , beverageFormSubmitting = False
       , beverageFormSuccess = False
       , beveragesLoading = True
@@ -296,7 +268,7 @@ update msg model =
                             { model_ | formSuccess = False, reviewForm = emptyReviewForm }
 
                         NewBeverage ->
-                            { model_ | beverageFormSuccess = False, beverageForm = emptyBeverageForm }
+                            { model_ | beverageFormSuccess = False, beverageForm = Beverage.emptyBeverageForm }
 
                         _ ->
                             model_
@@ -567,11 +539,11 @@ update msg model =
             case Decode.decodeValue (Decode.field "success" Decode.bool) value of
                 Ok success ->
                     if success then
-                        case Decode.decodeValue (Decode.field "beverage" beverageDecoder) value of
+                        case Decode.decodeValue (Decode.field "beverage" Beverage.beverageDecoder) value of
                             Ok newBeverage ->
                                 -- 新しいお酒をリストに追加
                                 ( { model
-                                    | beverageForm = emptyBeverageForm
+                                    | beverageForm = Beverage.emptyBeverageForm
                                     , beverageFormSubmitting = False
                                     , beverageFormSuccess = True
                                     , beverages = newBeverage :: model.beverages
@@ -610,7 +582,7 @@ update msg model =
 
         -- お酒リスト受信処理
         ReceivedBeverages value ->
-            case Decode.decodeValue (Decode.list beverageDecoder) value of
+            case Decode.decodeValue (Decode.list Beverage.beverageDecoder) value of
                 Ok receivedBeverages ->
                     ( { model | beverages = receivedBeverages, beveragesLoading = False, error = Nothing }, Cmd.none )
 
@@ -637,20 +609,7 @@ reviewDecoder =
 
 
 -- お酒のデコーダー
-
-
-beverageDecoder : Decoder Beverage
-beverageDecoder =
-    Decode.succeed Beverage
-        |> Pipeline.required "id" Decode.string
-        |> Pipeline.required "name" Decode.string
-        |> Pipeline.required "category" Decode.string
-        |> Pipeline.optional "alcoholPercentage" (nullable Decode.float) Nothing
-        |> Pipeline.optional "manufacturer" (nullable Decode.string) Nothing
-        |> Pipeline.optional "description" (nullable Decode.string) Nothing
-
-
-
+-- beverageDecoder は Beverage.elm に移動しました
 -- ビュー関数
 
 
