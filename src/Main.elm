@@ -1,6 +1,6 @@
 port module Main exposing (main)
 
-import Beverage exposing (Beverage, BeverageForm, beverageDecoder, emptyBeverageForm)
+import Beverage
 import Browser
 import Browser.Navigation as Nav
 import Html exposing (..)
@@ -8,7 +8,7 @@ import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit)
 import Json.Decode as Decode exposing (Decoder, field)
 import Json.Encode as Encode
-import Review exposing (Review, ReviewForm, emptyReviewForm, reviewDecoder)
+import Review exposing (viewReviewCard, viewReviewDetail)
 import Url
 import Url.Parser as Parser exposing ((</>), Parser, oneOf)
 import User exposing (Error, User)
@@ -162,7 +162,6 @@ type Msg
     | ReviewSaved Decode.Value
     | RequestReviews -- レビュー取得リクエストメッセージ
     | ReceivedReviews Decode.Value -- レビュー受信メッセージ
-      -- 新しいお酒関連のメッセージ
     | UpdateBeverageForm BeverageFormField String
     | SubmitBeverageForm
     | BeverageSaved Decode.Value
@@ -588,7 +587,7 @@ view model =
 
                 -- 呼び出しを追加
                 ReviewDetail id ->
-                    viewReviewDetail id model
+                    viewReviewDetail (\beverageId -> NavigateTo (BeverageDetail beverageId)) LikeReview (NavigateTo Home) id model.reviews
 
                 NewReview ->
                     viewNewReview model
@@ -657,68 +656,8 @@ viewHome model =
             div [ class "text-center py-8" ] [ text "まだレビューがありません。" ]
 
           else
-            div [ class "review-list" ] (List.map viewReviewCard model.reviews)
+            div [ class "review-list" ] (List.map (viewReviewCard (\reviewId -> NavigateTo (ReviewDetail reviewId)) (\beverageId -> NavigateTo (BeverageDetail beverageId)) LikeReview) model.reviews)
         ]
-
-
-viewReviewCard : Review.Review -> Html Msg
-viewReviewCard review =
-    div [ class "review-card", onClick (NavigateTo (ReviewDetail review.id)) ]
-        [ div [ class "review-header" ]
-            [ h3 [] [ text review.title ]
-            , div [ class "review-meta" ]
-                [ span [ class "review-author" ] [ text ("投稿者: " ++ review.userName) ]
-
-                -- お酒名をクリック可能にする
-                , span
-                    [ class "review-beverage cursor-pointer hover:underline"
-                    , -- 親要素の onClick イベント伝播を停止し、メッセージを送信する
-                      Html.Events.stopPropagationOn "click"
-                        (Decode.succeed ( NavigateTo (BeverageDetail review.beverageId), True ))
-
-                    -- <- これで置き換え
-                    ]
-                    [ text ("お酒: " ++ review.beverageName) ]
-                ]
-            ]
-        , viewRating review.rating
-        , div [ class "review-content" ] [ text review.content ]
-        , case review.imageUrl of
-            Just url ->
-                img [ src url, class "review-image" ] []
-
-            Nothing ->
-                div [] []
-        , div [ class "review-footer" ]
-            [ button
-                [ class "like-button"
-
-                -- LikeReview メッセージを送信し、親要素へのイベント伝播を停止する
-                , Html.Events.stopPropagationOn "click" (Decode.succeed ( LikeReview review.id, True ))
-                ]
-                [ text ("♥ " ++ String.fromInt review.likes) ]
-            ]
-        ]
-
-
-viewRating : Int -> Html Msg
-viewRating rating =
-    div [ class "rating" ]
-        (List.map
-            (\i ->
-                span
-                    [ class
-                        (if i <= rating then
-                            "star filled"
-
-                         else
-                            "star"
-                        )
-                    ]
-                    [ text "★" ]
-            )
-            (List.range 1 5)
-        )
 
 
 viewLogin : Model -> Html Msg
@@ -834,7 +773,7 @@ viewBeverageDetail id model =
                     div [ class "text-center py-8" ] [ text "レビューを読み込み中..." ]
 
                   else
-                    div [ class "review-list" ] (List.map viewReviewCard relatedReviews)
+                    div [ class "review-list" ] (List.map (viewReviewCard (\reviewId -> NavigateTo (ReviewDetail reviewId)) (\beverageId -> NavigateTo (BeverageDetail beverageId)) LikeReview) relatedReviews)
                 , button
                     [ class "button-primary mt-8"
 
@@ -850,45 +789,6 @@ viewBeverageDetail id model =
                 [ h1 [] [ text "お酒が見つかりません" ]
                 , p [] [ text ("ID: " ++ id ++ " のお酒は見つかりませんでした。") ]
                 , button [ class "button-primary mt-4", onClick (NavigateTo BeverageList) ] [ text "お酒一覧に戻る" ]
-                ]
-
-
-viewReviewDetail : String -> Model -> Html Msg
-viewReviewDetail id model =
-    case List.head (List.filter (\r -> r.id == id) model.reviews) of
-        Just review ->
-            div [ class "review-detail" ]
-                [ h1 [] [ text review.title ]
-                , div [ class "review-meta" ]
-                    [ span [ class "review-author" ] [ text ("投稿者: " ++ review.userName) ]
-
-                    -- お酒名をクリック可能にする
-                    , span
-                        [ class "review-beverage cursor-pointer hover:underline"
-                        , onClick (NavigateTo (BeverageDetail review.beverageId))
-                        ]
-                        [ text ("お酒: " ++ review.beverageName) ]
-                    ]
-                , viewRating review.rating
-                , div [ class "review-content-full" ] [ text review.content ]
-                , case review.imageUrl of
-                    Just url ->
-                        img [ src url, class "review-image-large" ] []
-
-                    Nothing ->
-                        div [] []
-                , div [ class "review-actions" ]
-                    [ button [ class "like-button", onClick (LikeReview review.id) ]
-                        [ text ("♥ " ++ String.fromInt review.likes) ]
-                    ]
-                , div [ class "comments" ] [ text "ここにコメントが入ります" ]
-                ]
-
-        Nothing ->
-            div [ class "not-found bg-white rounded-lg shadow-md p-8 mt-5" ]
-                [ h1 [] [ text "レビューが見つかりません" ]
-                , p [] [ text ("ID: " ++ id ++ " のレビューは見つかりませんでした。") ]
-                , button [ class "button-primary mt-4", onClick (NavigateTo Home) ] [ text "ホームに戻る" ]
                 ]
 
 
