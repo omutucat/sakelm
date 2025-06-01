@@ -587,7 +587,22 @@ view model =
 
                 -- 呼び出しを追加
                 ReviewDetail id ->
-                    viewReviewDetail (\beverageId -> NavigateTo (BeverageDetail beverageId)) LikeReview (NavigateTo Home) id model.reviews
+                    let
+                        maybeReview =
+                            List.head (List.filter (\r -> r.id == id) model.reviews)
+                    in
+                    -- レビュー詳細を表示
+                    case maybeReview of
+                        Just review ->
+                            viewReviewDetail (\beverageId -> NavigateTo (BeverageDetail beverageId)) LikeReview review
+
+                        Nothing ->
+                            div [ class "not-found bg-white rounded-lg shadow-md p-8 mt-5" ]
+                                [ -- レビューが見つからない場合の表示
+                                  h1 [] [ text "レビューが見つかりません" ]
+                                , p [] [ text ("ID: " ++ id ++ " のレビューは見つかりませんでした。") ]
+                                , button [ class "button-primary mt-4", onClick (NavigateTo Home) ] [ text "ホームに戻る" ]
+                                ]
 
                 NewReview ->
                     viewNewReview model

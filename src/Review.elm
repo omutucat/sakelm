@@ -128,40 +128,31 @@ viewRating rating =
         )
 
 
-viewReviewDetail : (String -> msg) -> (String -> msg) -> msg -> String -> List Review -> Html msg
-viewReviewDetail toBeverageDatail onLikeClicked toHome id reviews =
-    case List.head (List.filter (\r -> r.id == id) reviews) of
-        Just review ->
-            div [ class "review-detail" ]
-                [ h1 [] [ text review.title ]
-                , div [ class "review-meta" ]
-                    [ span [ class "review-author" ] [ text ("投稿者: " ++ review.userName) ]
+viewReviewDetail : (String -> msg) -> (String -> msg) -> Review -> Html msg
+viewReviewDetail toBeverageDatail onLikeClicked review =
+    div [ class "review-detail" ]
+        [ h1 [] [ text review.title ]
+        , div [ class "review-meta" ]
+            [ span [ class "review-author" ] [ text ("投稿者: " ++ review.userName) ]
 
-                    -- お酒名をクリック可能にする
-                    , span
-                        [ class "review-beverage cursor-pointer hover:underline"
-                        , onClick (toBeverageDatail review.beverageId)
-                        ]
-                        [ text ("お酒: " ++ review.beverageName) ]
-                    ]
-                , viewRating review.rating
-                , div [ class "review-content-full" ] [ text review.content ]
-                , case review.imageUrl of
-                    Just url ->
-                        img [ src url, class "review-image-large" ] []
-
-                    Nothing ->
-                        div [] []
-                , div [ class "review-actions" ]
-                    [ button [ class "like-button", onClick (onLikeClicked review.id) ]
-                        [ text ("♥ " ++ String.fromInt review.likes) ]
-                    ]
-                , div [ class "comments" ] [ text "ここにコメントが入ります" ]
+            -- お酒名をクリック可能にする
+            , span
+                [ class "review-beverage cursor-pointer hover:underline"
+                , onClick (toBeverageDatail review.beverageId)
                 ]
+                [ text ("お酒: " ++ review.beverageName) ]
+            ]
+        , viewRating review.rating
+        , div [ class "review-content-full" ] [ text review.content ]
+        , case review.imageUrl of
+            Just url ->
+                img [ src url, class "review-image-large" ] []
 
-        Nothing ->
-            div [ class "not-found bg-white rounded-lg shadow-md p-8 mt-5" ]
-                [ h1 [] [ text "レビューが見つかりません" ]
-                , p [] [ text ("ID: " ++ id ++ " のレビューは見つかりませんでした。") ]
-                , button [ class "button-primary mt-4", onClick toHome ] [ text "ホームに戻る" ]
-                ]
+            Nothing ->
+                div [] []
+        , div [ class "review-actions" ]
+            [ button [ class "like-button", onClick (onLikeClicked review.id) ]
+                [ text ("♥ " ++ String.fromInt review.likes) ]
+            ]
+        , div [ class "comments" ] [ text "ここにコメントが入ります" ]
+        ]
