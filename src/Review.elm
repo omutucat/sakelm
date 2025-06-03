@@ -1,6 +1,7 @@
 module Review exposing
     ( Review
     , ReviewForm
+    , ReviewList(..)
     , emptyReviewForm
     , reviewDecoder
     , viewRating
@@ -29,6 +30,11 @@ type alias Review =
     , likes : Int
     , createdAt : Time.Posix
     }
+
+
+type ReviewList
+    = Loading
+    | Loaded (List Review)
 
 
 type alias ReviewForm =

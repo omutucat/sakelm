@@ -8,7 +8,7 @@ import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit)
 import Json.Decode as Decode exposing (Decoder, field)
 import Json.Encode as Encode
-import Review exposing (viewReviewCard, viewReviewDetail)
+import Review exposing (ReviewList(..), viewReviewCard, viewReviewDetail)
 import Url
 import Url.Parser as Parser exposing ((</>), Parser, oneOf)
 import User exposing (Error, User)
@@ -72,14 +72,13 @@ type alias Error =
 type alias Model =
     { key : Nav.Key
     , page : Page
-    , reviews : List Review.Review -- Firestoreから取得したレビューを格納
+    , reviews : ReviewList
     , user : Maybe User
     , error : Maybe Error
     , reviewForm : Review.ReviewForm
     , formSubmitting : Bool
     , formSuccess : Bool
     , beverages : List Beverage.Beverage -- お酒のリストを追加
-    , reviewsLoading : Bool -- レビュー読み込み中フラグを追加
     , beverageForm : Beverage.BeverageForm -- お酒追加フォーム
     , beverageFormSubmitting : Bool
     , beverageFormSuccess : Bool
@@ -117,14 +116,13 @@ init flags _ key =
     in
     ( { key = key
       , page = Home
-      , reviews = [] -- 初期状態は空リスト
+      , reviews = Loading
       , user = decodedFlags.user
       , error = Nothing
       , reviewForm = Review.emptyReviewForm
       , formSubmitting = False
       , formSuccess = False
       , beverages = []
-      , reviewsLoading = True -- 初期状態は読み込み中
       , beverageForm = Beverage.emptyBeverageForm
       , beverageFormSubmitting = False
       , beverageFormSuccess = False
@@ -274,20 +272,34 @@ update msg model =
             ( model, Nav.pushUrl model.key urlPath )
 
         LikeReview reviewId ->
-            ( { model
-                | reviews =
-                    List.map
-                        (\review ->
-                            if review.id == reviewId then
-                                { review | likes = review.likes + 1 }
+            case model.reviews of
+                Loading ->
+                    -- レビューがまだ読み込まれていない場合は何もしない
+                    ( model, Cmd.none )
 
-                            else
-                                review
+                Loaded reviews ->
+                    -- レビューのいいね数を更新
+                    if List.isEmpty reviews then
+                        ( model, Cmd.none )
+
+                    else
+                        -- いいね数を更新した新しいレビューリストを作成
+                        ( { model
+                            | reviews =
+                                Loaded
+                                    (List.map
+                                        (\review ->
+                                            if review.id == reviewId then
+                                                { review | likes = review.likes + 1 }
+
+                                            else
+                                                review
+                                        )
+                                        reviews
+                                    )
+                          }
+                        , Cmd.none
                         )
-                        model.reviews
-              }
-            , Cmd.none
-            )
 
         LogIn ->
             ( model, User.requestLogin () )
@@ -299,7 +311,7 @@ update msg model =
             case Decode.decodeValue (Decode.nullable User.userDecoder) value of
                 Ok maybeUser ->
                     -- ユーザー状態が変わったらレビューを再取得
-                    ( { model | user = maybeUser, error = Nothing, reviewsLoading = True }, requestReviews () )
+                    ( { model | user = maybeUser, error = Nothing, reviews = Loading }, requestReviews () )
 
                 Err error ->
                     ( { model | error = Just { code = "decode-error", message = Decode.errorToString error } }, Cmd.none )
@@ -394,7 +406,13 @@ update msg model =
                                     | reviewForm = Review.emptyReviewForm
                                     , formSubmitting = False
                                     , formSuccess = True
-                                    , reviews = newReview :: model.reviews -- Firestoreから再取得せず、ローカルで追加
+                                    , reviews =
+                                        case model.reviews of
+                                            Loading ->
+                                                Loading
+
+                                            Loaded reviews ->
+                                                Loaded (newReview :: reviews)
                                     , page = Home
                                   }
                                 , Cmd.none
@@ -428,15 +446,15 @@ update msg model =
                     )
 
         RequestReviews ->
-            ( { model | reviewsLoading = True }, requestReviews () )
+            ( { model | reviews = Loading }, requestReviews () )
 
         ReceivedReviews value ->
             case Decode.decodeValue (Decode.list Review.reviewDecoder) value of
                 Ok receivedReviews ->
-                    ( { model | reviews = receivedReviews, reviewsLoading = False, error = Nothing }, Cmd.none )
+                    ( { model | reviews = Loaded receivedReviews, error = Nothing }, Cmd.none )
 
                 Err decodeError ->
-                    ( { model | reviewsLoading = False, error = Just { code = "decode-error", message = "レビューリストのデコードに失敗しました: " ++ Decode.errorToString decodeError } }, Cmd.none )
+                    ( { model | error = Just { code = "decode-error", message = "レビューリストのデコードに失敗しました: " ++ Decode.errorToString decodeError } }, Cmd.none )
 
         -- お酒のフォーム更新
         UpdateBeverageForm field value ->
@@ -589,7 +607,12 @@ view model =
                 ReviewDetail id ->
                     let
                         maybeReview =
-                            List.head (List.filter (\r -> r.id == id) model.reviews)
+                            case model.reviews of
+                                Loading ->
+                                    Nothing
+
+                                Loaded reviews ->
+                                    List.head (List.filter (\r -> r.id == id) reviews)
                     in
                     -- レビュー詳細を表示
                     case maybeReview of
@@ -664,14 +687,17 @@ viewHome : Model -> Html Msg
 viewHome model =
     div [ class "home" ]
         [ h1 [] [ text "最新のレビュー" ]
-        , if model.reviewsLoading then
-            div [ class "text-center py-8" ] [ text "レビューを読み込み中..." ]
+        , case model.reviews of
+            Loading ->
+                div [ class "text-center py-8" ] [ text "レビューを読み込み中..." ]
 
-          else if List.isEmpty model.reviews then
-            div [ class "text-center py-8" ] [ text "まだレビューがありません。" ]
+            Loaded reviews ->
+                if List.isEmpty reviews then
+                    div [ class "text-center py-8" ] [ text "まだレビューがありません。" ]
 
-          else
-            div [ class "review-list" ] (List.map (viewReviewCard (\reviewId -> NavigateTo (ReviewDetail reviewId)) (\beverageId -> NavigateTo (BeverageDetail beverageId)) LikeReview) model.reviews)
+                else
+                    div [ class "review-list" ]
+                        (List.map (viewReviewCard (\reviewId -> NavigateTo (ReviewDetail reviewId)) (\beverageId -> NavigateTo (BeverageDetail beverageId)) LikeReview) reviews)
         ]
 
 
@@ -766,18 +792,21 @@ viewBeverageDetail id model =
                 -- , p [] [ text ("度数: " ++ Maybe.map String.fromFloat beverage.alcoholPercentage |> Maybe.withDefault "不明" ++ "%") ]
                 -- , p [] [ text ("説明: " ++ Maybe.withDefault "" beverage.description) ]
                 , h2 [ class "mt-8 mb-4 text-xl text-primary" ] [ text (beverage.name ++ " のレビュー") ]
-                , let
-                    relatedReviews =
-                        List.filter (\r -> r.beverageId == id) model.reviews
-                  in
-                  if List.isEmpty relatedReviews then
-                    p [] [ text "このお酒に関するレビューはまだありません。" ]
+                , case model.reviews of
+                    Loading ->
+                        div [ class "text-center py-8" ] [ text "レビューを読み込み中..." ]
 
-                  else if model.reviewsLoading then
-                    div [ class "text-center py-8" ] [ text "レビューを読み込み中..." ]
+                    Loaded reviews ->
+                        let
+                            relatedReviews =
+                                List.filter (\review -> review.beverageId == id) reviews
+                        in
+                        if List.isEmpty reviews then
+                            div [ class "text-center py-8" ] [ text "このお酒に関するレビューはまだありません。" ]
 
-                  else
-                    div [ class "review-list" ] (List.map (viewReviewCard (\reviewId -> NavigateTo (ReviewDetail reviewId)) (\beverageId -> NavigateTo (BeverageDetail beverageId)) LikeReview) relatedReviews)
+                        else
+                            div [ class "review-list" ]
+                                (List.map (viewReviewCard (\reviewId -> NavigateTo (ReviewDetail reviewId)) (\beverageId -> NavigateTo (BeverageDetail beverageId)) LikeReview) relatedReviews)
                 , button
                     [ class "button-primary mt-8"
 
