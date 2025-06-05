@@ -1,6 +1,7 @@
 module Beverage exposing
     ( Beverage
     , BeverageForm
+    , BeverageList(..)
     , beverageDecoder
     , emptyBeverageForm
     , viewBeverageCard
@@ -21,6 +22,11 @@ type alias Beverage =
     , manufacturer : Maybe String
     , description : Maybe String
     }
+
+
+type BeverageList
+    = Loading
+    | Loaded (List Beverage)
 
 
 type alias BeverageForm =

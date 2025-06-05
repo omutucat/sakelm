@@ -1,6 +1,6 @@
 port module Main exposing (main)
 
-import Beverage exposing (viewBeverageCard)
+import Beverage
 import Browser
 import Browser.Navigation as Nav
 import Html exposing (..)
@@ -8,7 +8,7 @@ import Html.Attributes exposing (..)
 import Html.Events exposing (onClick, onInput, onSubmit)
 import Json.Decode as Decode exposing (Decoder, field)
 import Json.Encode as Encode
-import Review exposing (ReviewList(..), viewReviewCard, viewReviewDetail)
+import Review
 import Url
 import Url.Parser as Parser exposing ((</>), Parser, oneOf)
 import User exposing (Error, User)
@@ -72,17 +72,16 @@ type alias Error =
 type alias Model =
     { key : Nav.Key
     , page : Page
-    , reviews : ReviewList
+    , reviews : Review.ReviewList
     , user : Maybe User
     , error : Maybe Error
     , reviewForm : Review.ReviewForm
     , formSubmitting : Bool
     , formSuccess : Bool
-    , beverages : List Beverage.Beverage -- お酒のリストを追加
+    , beverages : Beverage.BeverageList
     , beverageForm : Beverage.BeverageForm -- お酒追加フォーム
     , beverageFormSubmitting : Bool
     , beverageFormSuccess : Bool
-    , beveragesLoading : Bool -- お酒の読み込み中フラグ
     }
 
 
@@ -116,17 +115,16 @@ init flags _ key =
     in
     ( { key = key
       , page = Home
-      , reviews = Loading
+      , reviews = Review.Loading
       , user = decodedFlags.user
       , error = Nothing
       , reviewForm = Review.emptyReviewForm
       , formSubmitting = False
       , formSuccess = False
-      , beverages = []
+      , beverages = Beverage.Loading
       , beverageForm = Beverage.emptyBeverageForm
       , beverageFormSubmitting = False
       , beverageFormSuccess = False
-      , beveragesLoading = True
       }
     , Cmd.batch
         [ requestReviews () -- レビュー取得
@@ -273,11 +271,11 @@ update msg model =
 
         LikeReview reviewId ->
             case model.reviews of
-                Loading ->
+                Review.Loading ->
                     -- レビューがまだ読み込まれていない場合は何もしない
                     ( model, Cmd.none )
 
-                Loaded reviews ->
+                Review.Loaded reviews ->
                     -- レビューのいいね数を更新
                     if List.isEmpty reviews then
                         ( model, Cmd.none )
@@ -286,7 +284,7 @@ update msg model =
                         -- いいね数を更新した新しいレビューリストを作成
                         ( { model
                             | reviews =
-                                Loaded
+                                Review.Loaded
                                     (List.map
                                         (\review ->
                                             if review.id == reviewId then
@@ -311,7 +309,7 @@ update msg model =
             case Decode.decodeValue (Decode.nullable User.userDecoder) value of
                 Ok maybeUser ->
                     -- ユーザー状態が変わったらレビューを再取得
-                    ( { model | user = maybeUser, error = Nothing, reviews = Loading }, requestReviews () )
+                    ( { model | user = maybeUser, error = Nothing, reviews = Review.Loading }, requestReviews () )
 
                 Err error ->
                     ( { model | error = Just { code = "decode-error", message = Decode.errorToString error } }, Cmd.none )
@@ -335,9 +333,14 @@ update msg model =
                             -- 選択されたお酒IDからお酒名も設定する
                             let
                                 selectedBeverage =
-                                    model.beverages
-                                        |> List.filter (\b -> b.id == value)
-                                        |> List.head
+                                    case model.beverages of
+                                        Beverage.Loading ->
+                                            Nothing
+
+                                        Beverage.Loaded beverages ->
+                                            beverages
+                                                |> List.filter (\b -> b.id == value)
+                                                |> List.head
 
                                 beverageName =
                                     case selectedBeverage of
@@ -408,11 +411,11 @@ update msg model =
                                     , formSuccess = True
                                     , reviews =
                                         case model.reviews of
-                                            Loading ->
-                                                Loading
+                                            Review.Loading ->
+                                                Review.Loading
 
-                                            Loaded reviews ->
-                                                Loaded (newReview :: reviews)
+                                            Review.Loaded reviews ->
+                                                Review.Loaded (newReview :: reviews)
                                     , page = Home
                                   }
                                 , Cmd.none
@@ -446,12 +449,12 @@ update msg model =
                     )
 
         RequestReviews ->
-            ( { model | reviews = Loading }, requestReviews () )
+            ( { model | reviews = Review.Loading }, requestReviews () )
 
         ReceivedReviews value ->
             case Decode.decodeValue (Decode.list Review.reviewDecoder) value of
                 Ok receivedReviews ->
-                    ( { model | reviews = Loaded receivedReviews, error = Nothing }, Cmd.none )
+                    ( { model | reviews = Review.Loaded receivedReviews, error = Nothing }, Cmd.none )
 
                 Err decodeError ->
                     ( { model | error = Just { code = "decode-error", message = "レビューリストのデコードに失敗しました: " ++ Decode.errorToString decodeError } }, Cmd.none )
@@ -526,7 +529,13 @@ update msg model =
                                     | beverageForm = Beverage.emptyBeverageForm
                                     , beverageFormSubmitting = False
                                     , beverageFormSuccess = True
-                                    , beverages = newBeverage :: model.beverages
+                                    , beverages =
+                                        case model.beverages of
+                                            Beverage.Loading ->
+                                                Beverage.Loading
+
+                                            Beverage.Loaded beverages ->
+                                                Beverage.Loaded (newBeverage :: beverages)
                                   }
                                 , Cmd.none
                                 )
@@ -558,16 +567,16 @@ update msg model =
 
         -- お酒リスト取得リクエスト
         RequestBeverages ->
-            ( { model | beveragesLoading = True }, requestBeverages () )
+            ( { model | beverages = Beverage.Loading }, requestBeverages () )
 
         -- お酒リスト受信処理
         ReceivedBeverages value ->
             case Decode.decodeValue (Decode.list Beverage.beverageDecoder) value of
                 Ok receivedBeverages ->
-                    ( { model | beverages = receivedBeverages, beveragesLoading = False, error = Nothing }, Cmd.none )
+                    ( { model | beverages = Beverage.Loaded receivedBeverages, error = Nothing }, Cmd.none )
 
                 Err decodeError ->
-                    ( { model | beveragesLoading = False, error = Just { code = "decode-error", message = "お酒リストのデコードに失敗しました: " ++ Decode.errorToString decodeError } }, Cmd.none )
+                    ( { model | error = Just { code = "decode-error", message = "お酒リストのデコードに失敗しました: " ++ Decode.errorToString decodeError } }, Cmd.none )
 
 
 
@@ -608,16 +617,16 @@ view model =
                     let
                         maybeReview =
                             case model.reviews of
-                                Loading ->
+                                Review.Loading ->
                                     Nothing
 
-                                Loaded reviews ->
+                                Review.Loaded reviews ->
                                     List.head (List.filter (\r -> r.id == id) reviews)
                     in
                     -- レビュー詳細を表示
                     case maybeReview of
                         Just review ->
-                            viewReviewDetail (\beverageId -> NavigateTo (BeverageDetail beverageId)) LikeReview review
+                            Review.viewReviewDetail (\beverageId -> NavigateTo (BeverageDetail beverageId)) LikeReview review
 
                         Nothing ->
                             div [ class "not-found bg-white rounded-lg shadow-md p-8 mt-5" ]
@@ -688,16 +697,16 @@ viewHome model =
     div [ class "home" ]
         [ h1 [] [ text "最新のレビュー" ]
         , case model.reviews of
-            Loading ->
+            Review.Loading ->
                 div [ class "text-center py-8" ] [ text "レビューを読み込み中..." ]
 
-            Loaded reviews ->
+            Review.Loaded reviews ->
                 if List.isEmpty reviews then
                     div [ class "text-center py-8" ] [ text "まだレビューがありません。" ]
 
                 else
                     div [ class "review-list" ]
-                        (List.map (viewReviewCard (\reviewId -> NavigateTo (ReviewDetail reviewId)) (\beverageId -> NavigateTo (BeverageDetail beverageId)) LikeReview) reviews)
+                        (List.map (Review.viewReviewCard (\reviewId -> NavigateTo (ReviewDetail reviewId)) (\beverageId -> NavigateTo (BeverageDetail beverageId)) LikeReview) reviews)
         ]
 
 
@@ -744,85 +753,93 @@ viewBeverageList model =
                 Nothing ->
                     text ""
             ]
-        , if model.beveragesLoading then
-            div [ class "text-center py-8" ] [ text "お酒リスト読み込み中..." ]
+        , case model.beverages of
+            Beverage.Loading ->
+                div [ class "text-center py-8" ] [ text "お酒リスト読み込み中..." ]
 
-          else if List.isEmpty model.beverages then
-            div [ class "text-center py-8" ] [ text "登録されているお酒がありません。" ]
+            Beverage.Loaded beverages ->
+                if List.isEmpty beverages then
+                    div [ class "text-center py-8" ] [ text "登録されているお酒がありません。" ]
 
-          else
-            div [ class "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5" ]
-                (List.map (viewBeverageCard (\beverageId -> NavigateTo (BeverageDetail beverageId))) model.beverages)
+                else
+                    div [ class "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5" ]
+                        (List.map (Beverage.viewBeverageCard (\beverageId -> NavigateTo (BeverageDetail beverageId))) beverages)
         ]
 
 
 viewBeverageDetail : String -> Model -> Html Msg
 viewBeverageDetail id model =
-    case List.head (List.filter (\b -> b.id == id) model.beverages) of
-        Just beverage ->
-            div [ class "beverage-detail bg-white rounded-lg shadow-md p-8 mt-5" ]
-                [ h1 [] [ text beverage.name ]
-                , div [ class "mb-4 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2" ]
-                    [ div []
-                        [ strong [] [ text "カテゴリー: " ]
-                        , text beverage.category
-                        ]
-                    , div []
-                        [ strong [] [ text "度数: " ]
-                        , text (Maybe.map (\p -> String.fromFloat p ++ "%") beverage.alcoholPercentage |> Maybe.withDefault "不明")
-                        ]
-                    , div []
-                        [ strong [] [ text "製造元: " ]
-                        , text (Maybe.withDefault "不明" beverage.manufacturer)
-                        ]
-                    ]
-                , case beverage.description of
-                    Just desc ->
-                        div [ class "mt-4 mb-6" ]
-                            [ strong [] [ text "説明: " ]
-                            , p [ class "mt-1" ] [ text desc ]
+    case model.beverages of
+        Beverage.Loading ->
+            div [ class "text-center py-8" ] [ text "お酒の詳細を読み込み中..." ]
+
+        Beverage.Loaded beverages ->
+            -- お酒の詳細を表示
+            case List.head (List.filter (\b -> b.id == id) beverages) of
+                Just beverage ->
+                    div [ class "beverage-detail bg-white rounded-lg shadow-md p-8 mt-5" ]
+                        [ h1 [] [ text beverage.name ]
+                        , div [ class "mb-4 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2" ]
+                            [ div []
+                                [ strong [] [ text "カテゴリー: " ]
+                                , text beverage.category
+                                ]
+                            , div []
+                                [ strong [] [ text "度数: " ]
+                                , text (Maybe.map (\p -> String.fromFloat p ++ "%") beverage.alcoholPercentage |> Maybe.withDefault "不明")
+                                ]
+                            , div []
+                                [ strong [] [ text "製造元: " ]
+                                , text (Maybe.withDefault "不明" beverage.manufacturer)
+                                ]
                             ]
+                        , case beverage.description of
+                            Just desc ->
+                                div [ class "mt-4 mb-6" ]
+                                    [ strong [] [ text "説明: " ]
+                                    , p [ class "mt-1" ] [ text desc ]
+                                    ]
 
-                    Nothing ->
-                        text ""
+                            Nothing ->
+                                text ""
 
-                -- TODO: 将来的に追加されるであろうお酒の詳細情報を表示する箇所
-                -- 例:
-                -- , p [] [ text ("製造元: " ++ Maybe.withDefault "不明" beverage.manufacturer) ]
-                -- , p [] [ text ("度数: " ++ Maybe.map String.fromFloat beverage.alcoholPercentage |> Maybe.withDefault "不明" ++ "%") ]
-                -- , p [] [ text ("説明: " ++ Maybe.withDefault "" beverage.description) ]
-                , h2 [ class "mt-8 mb-4 text-xl text-primary" ] [ text (beverage.name ++ " のレビュー") ]
-                , case model.reviews of
-                    Loading ->
-                        div [ class "text-center py-8" ] [ text "レビューを読み込み中..." ]
+                        -- TODO: 将来的に追加されるであろうお酒の詳細情報を表示する箇所
+                        -- 例:
+                        -- , p [] [ text ("製造元: " ++ Maybe.withDefault "不明" beverage.manufacturer) ]
+                        -- , p [] [ text ("度数: " ++ Maybe.map String.fromFloat beverage.alcoholPercentage |> Maybe.withDefault "不明" ++ "%") ]
+                        -- , p [] [ text ("説明: " ++ Maybe.withDefault "" beverage.description) ]
+                        , h2 [ class "mt-8 mb-4 text-xl text-primary" ] [ text (beverage.name ++ " のレビュー") ]
+                        , case model.reviews of
+                            Review.Loading ->
+                                div [ class "text-center py-8" ] [ text "レビューを読み込み中..." ]
 
-                    Loaded reviews ->
-                        let
-                            relatedReviews =
-                                List.filter (\review -> review.beverageId == id) reviews
-                        in
-                        if List.isEmpty reviews then
-                            div [ class "text-center py-8" ] [ text "このお酒に関するレビューはまだありません。" ]
+                            Review.Loaded reviews ->
+                                let
+                                    relatedReviews =
+                                        List.filter (\review -> review.beverageId == id) reviews
+                                in
+                                if List.isEmpty reviews then
+                                    div [ class "text-center py-8" ] [ text "このお酒に関するレビューはまだありません。" ]
 
-                        else
-                            div [ class "review-list" ]
-                                (List.map (viewReviewCard (\reviewId -> NavigateTo (ReviewDetail reviewId)) (\beverageId -> NavigateTo (BeverageDetail beverageId)) LikeReview) relatedReviews)
-                , button
-                    [ class "button-primary mt-8"
+                                else
+                                    div [ class "review-list" ]
+                                        (List.map (Review.viewReviewCard (\reviewId -> NavigateTo (ReviewDetail reviewId)) (\beverageId -> NavigateTo (BeverageDetail beverageId)) LikeReview) relatedReviews)
+                        , button
+                            [ class "button-primary mt-8"
 
-                    -- TODO: 新規レビューページにお酒IDを渡すように変更する
-                    -- 現状は新規レビューページに遷移するだけ
-                    , onClick (NavigateTo NewReview)
-                    ]
-                    [ text "このお酒のレビューを投稿する" ]
-                ]
+                            -- TODO: 新規レビューページにお酒IDを渡すように変更する
+                            -- 現状は新規レビューページに遷移するだけ
+                            , onClick (NavigateTo NewReview)
+                            ]
+                            [ text "このお酒のレビューを投稿する" ]
+                        ]
 
-        Nothing ->
-            div [ class "not-found bg-white rounded-lg shadow-md p-8 mt-5" ]
-                [ h1 [] [ text "お酒が見つかりません" ]
-                , p [] [ text ("ID: " ++ id ++ " のお酒は見つかりませんでした。") ]
-                , button [ class "button-primary mt-4", onClick (NavigateTo BeverageList) ] [ text "お酒一覧に戻る" ]
-                ]
+                Nothing ->
+                    div [ class "not-found bg-white rounded-lg shadow-md p-8 mt-5" ]
+                        [ h1 [] [ text "お酒が見つかりません" ]
+                        , p [] [ text ("ID: " ++ id ++ " のお酒は見つかりませんでした。") ]
+                        , button [ class "button-primary mt-4", onClick (NavigateTo BeverageList) ] [ text "お酒一覧に戻る" ]
+                        ]
 
 
 viewNewReview : Model -> Html Msg
@@ -858,12 +875,17 @@ viewNewReview model =
                                 , onInput (UpdateReviewForm BeverageField)
                                 , required True
                                 ]
-                                (option [ value "" ] [ text "-- 選択してください --" ]
-                                    :: List.map
-                                        (\beverage ->
-                                            option [ value beverage.id ] [ text beverage.name ]
-                                        )
-                                        model.beverages
+                                (case model.beverages of
+                                    Beverage.Loading ->
+                                        [ option [ value "" ] [ text "読み込み中..." ] ]
+
+                                    Beverage.Loaded beverages ->
+                                        option [ value "" ] [ text "-- 選択してください --" ]
+                                            :: List.map
+                                                (\beverage ->
+                                                    option [ value beverage.id ] [ text beverage.name ]
+                                                )
+                                                beverages
                                 )
                             ]
                         , div [ class "form-group" ]
